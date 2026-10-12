@@ -19,7 +19,7 @@ export default {
       colors: {
         // -----------------------------------------------------------------
         // Monochrome scale — the backbone of the black & white theme.
-        // 50 = pure white surfaces, 950 = pure black canvas.
+        // 0 = deep obsidian canvas, 50 = pure white surfaces.
         // -----------------------------------------------------------------
         mono: {
           50: '#ffffff',
@@ -30,10 +30,10 @@ export default {
           500: '#71717a',
           600: '#52525b',
           700: '#3f3f46',
-          800: '#27272a',
-          850: '#1c1c1f',
-          900: '#131316',
-          950: '#0a0a0b',
+          800: '#262626', // subtle slate border (per design spec)
+          850: '#1a1a1a',
+          900: '#111111',
+          950: '#0a0a0a', // deep obsidian background
         },
         // `ink` is kept as an alias so older utility classes keep working.
         ink: {
@@ -45,10 +45,10 @@ export default {
           500: '#71717a',
           600: '#52525b',
           700: '#3f3f46',
-          800: '#27272a',
-          850: '#1c1c1f',
-          900: '#131316',
-          950: '#0a0a0b',
+          800: '#262626',
+          850: '#1a1a1a',
+          900: '#111111',
+          950: '#0a0a0a',
         },
         // The single chromatic accent: live status + distance polyline.
         accent: {
@@ -57,6 +57,13 @@ export default {
           400: '#4ade80',
           500: '#22c55e',
           600: '#16a34a',
+        },
+        // The one safety exception to the monochrome rule (SOS only).
+        sos: {
+          DEFAULT: '#ef4444',
+          400: '#f87171',
+          500: '#ef4444',
+          600: '#dc2626',
         },
       },
       boxShadow: {

@@ -4,7 +4,9 @@ import api from './api';
 import { distanceMeters, formatDistance } from './distance';
 import { readInviteToken, clearInviteFromUrl } from './invite';
 import useCall from './useCall';
-import LiveMap from './components/LiveMap';
+import ExpeditionMap from './components/ExpeditionMap';
+import LandingPage from './components/LandingPage';
+import QrJoinModal from './components/QrJoinModal';
 import GroupChat from './components/GroupChat';
 import GroupManager from './components/GroupManager';
 import ExpensePanel from './components/ExpensePanel';
@@ -147,6 +149,13 @@ export default function App() {
   const [groupsRefresh, setGroupsRefresh] = useState(0);
   const [copied, setCopied] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Landing → auth → onboarding flow.
+  const [view, setView] = useState('landing'); // 'landing' | 'auth'
+  const [authIntent, setAuthIntent] = useState(null); // 'create' | 'join' | null
+  const [qrJoinOpen, setQrJoinOpen] = useState(false);
+  const [createSignal, setCreateSignal] = useState(0);
+  const invited = useMemo(() => Boolean(readInviteToken()), []);
 
   // Stories, notifications and overlays.
   const [storiesFeed, setStoriesFeed] = useState([]);
@@ -303,12 +312,31 @@ export default function App() {
       pushToast({ icon: '⚠', title: 'You were removed from a trip', body: 'An admin removed you.' });
     };
 
+    // SOS: an expedition member needs help — alert hard (sound + vibration).
+    const onSos = (payload) => {
+      vibrate([400, 120, 400, 120, 700]);
+      stopRingtone();
+      playRingtone({ duration: 9000 });
+      pushToast({
+        icon: '🆘',
+        title: `SOS from ${payload?.fromName || 'a member'}`,
+        body: payload?.message || 'Needs help',
+        alert: true,
+      }, { timeout: 15000 });
+    };
+    const onSosSent = () => pushToast({ icon: '🆘', title: 'SOS sent', body: 'Your group has been alerted.' });
+    const onSosCleared = (payload) =>
+      pushToast({ icon: '✓', title: 'SOS cleared', body: `${payload?.fromUserId ? 'A member' : 'The group'} is safe now.` });
+
     socket.on('vibrate', onVibrate);
     socket.on('ring', onRing);
     socket.on('ring-stopped', onRingStopped);
     socket.on('receive-dm', onDm);
     socket.on('group-updated', onGroupUpdated);
     socket.on('removed-from-group', onRemoved);
+    socket.on('sos', onSos);
+    socket.on('sos-sent', onSosSent);
+    socket.on('sos-cleared', onSosCleared);
     socket.on('story-updated', refreshStories);
     socket.on('story-deleted', refreshStories);
 
@@ -319,6 +347,9 @@ export default function App() {
       socket.off('receive-dm', onDm);
       socket.off('group-updated', onGroupUpdated);
       socket.off('removed-from-group', onRemoved);
+      socket.off('sos', onSos);
+      socket.off('sos-sent', onSosSent);
+      socket.off('sos-cleared', onSosCleared);
       socket.off('story-updated', refreshStories);
       socket.off('story-deleted', refreshStories);
     };
@@ -440,6 +471,10 @@ export default function App() {
   const handleAuthed = (u) => {
     setUser(u);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
+    // Apply the landing-page intent that sent us here.
+    if (authIntent === 'create') setCreateSignal((n) => n + 1);
+    if (authIntent === 'join' && !readInviteToken()) setQrJoinOpen(true);
+    setAuthIntent(null);
   };
 
   const handleLogout = async () => {
@@ -459,6 +494,9 @@ export default function App() {
     setMemberList([]);
     setToasts([]);
     setRinging(null);
+    setView('landing');
+    setAuthIntent(null);
+    setQrJoinOpen(false);
   };
 
   const copyInvite = async () => {
@@ -565,7 +603,36 @@ export default function App() {
   }
 
   if (!user || !currentUser) {
-    return <AuthForm onAuthed={handleAuthed} />;
+    if (view === 'landing') {
+      return (
+        <LandingPage
+          invited={invited}
+          onStart={(mode) => {
+            setAuthIntent(mode);
+            setView('auth');
+          }}
+          onSignIn={() => {
+            setAuthIntent(null);
+            setView('auth');
+          }}
+        />
+      );
+    }
+    return (
+      <div className="relative">
+        <AuthForm onAuthed={handleAuthed} />
+        <button
+          type="button"
+          onClick={() => setView('landing')}
+          className="fixed left-4 top-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-white/10"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-3.5 w-3.5">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+          Back to home
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -620,7 +687,12 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <GroupManager userId={currentUser.id} onSelectGroup={handleSelectGroup} refreshSignal={groupsRefresh} />
+          <GroupManager
+            userId={currentUser.id}
+            onSelectGroup={handleSelectGroup}
+            refreshSignal={groupsRefresh}
+            createSignal={createSignal}
+          />
         </div>
       </aside>
 
@@ -716,7 +788,7 @@ export default function App() {
             <div className="min-h-0 flex-1 bg-mono-950">
               <div key={tab} className="h-full animate-fade-in">
                 {tab === 'map' && (
-                  <div className="flex h-full flex-col">
+                  <div className="flex h-full min-h-0 flex-col">
                     <StoriesBar
                       stories={storiesFeed}
                       currentUser={currentUser}
@@ -724,11 +796,14 @@ export default function App() {
                       onAdd={() => setComposerOpen(true)}
                     />
                     <div className="min-h-0 flex-1">
-                      <LiveMap
+                      <ExpeditionMap
+                        groupName={activeGroup?.name}
                         myLocation={myLocation}
                         otherUsers={groupMembers}
                         stories={groupStoryMap}
                         currentUser={currentUser}
+                        socket={socket}
+                        groupId={groupId}
                         onAction={handleAction}
                         onAddStory={() => setComposerOpen(true)}
                       />
@@ -854,6 +929,21 @@ export default function App() {
           currentUser={currentUser}
           onClose={() => setDmUser(null)}
           onCall={(member) => call.startCall(member, groupId)}
+        />
+      )}
+
+      {qrJoinOpen && (
+        <QrJoinModal
+          onClose={() => setQrJoinOpen(false)}
+          onJoined={(group, alreadyMember) => {
+            setGroupsRefresh((n) => n + 1);
+            if (group) handleSelectGroup(group);
+            pushToast({
+              icon: '🧭',
+              title: alreadyMember ? `Already in ${group?.name || 'this trip'}` : `Joined ${group?.name || 'the trip'}`,
+              body: 'Trip added to your list',
+            });
+          }}
         />
       )}
     </div>

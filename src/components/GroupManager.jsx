@@ -44,7 +44,13 @@ const inputClass = 'input';
 /* -------------------------------------------------------------------------
  * GroupManager — lists the user's groups and offers Create / Join modals.
  * ---------------------------------------------------------------------- */
-export default function GroupManager({ userId, onSelectGroup, refreshSignal = 0 }) {
+export default function GroupManager({
+  userId,
+  onSelectGroup,
+  refreshSignal = 0,
+  createSignal = 0,
+  joinSignal = 0,
+}) {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -101,6 +107,26 @@ export default function GroupManager({ userId, onSelectGroup, refreshSignal = 0 
     setInviteCode('');
     setShowJoin(true);
   };
+
+  // Landing-page CTAs ("Create Expedition" / "Join via QR Code") open the
+  // matching modal once the user is authenticated.
+  const createRef = useRef(0);
+  useEffect(() => {
+    if (createSignal && createSignal !== createRef.current) {
+      createRef.current = createSignal;
+      openCreate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createSignal]);
+
+  const joinRef = useRef(0);
+  useEffect(() => {
+    if (joinSignal && joinSignal !== joinRef.current) {
+      joinRef.current = joinSignal;
+      openJoin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinSignal]);
 
   const handleCreate = async (e) => {
     e.preventDefault();

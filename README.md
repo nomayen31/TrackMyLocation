@@ -4,9 +4,11 @@ React + Vite frontend for **Trip Tracker** — a live group-travel tracker with 
 black & white minimalist UI.
 
 ## Features
-- Realtime group map (Leaflet + MapTiler Hybrid basemap) with live member markers
+- **Landing page** — monochrome hero, feature grid, interactive preview mockup and Create/Join CTAs
+- Realtime group map inside a framed card with a live expedition stats bar
 - **Location search** for any place, with a road-wise blue route and live distance + ETA (drive/walk/cycle)
 - Green distance polylines between you and selected group members (`geolib`)
+- **Floating map widgets** — nearby members, current weather, quick chat, and an **SOS** safety signal
 - **Group invites** — code, share link and QR code; scanning a QR auto-joins the trip
 - **Admin controls** — promote/demote admins and remove members
 - **Chat** — group and 1:1 direct messages with **images and voice notes**
