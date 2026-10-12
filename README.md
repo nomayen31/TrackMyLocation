@@ -9,6 +9,8 @@ black & white minimalist UI.
 - **Location search** for any place, with a road-wise blue route and live distance + ETA (drive/walk/cycle)
 - Green distance polylines between you and selected group members (`geolib`)
 - **Floating map widgets** — nearby members, current weather, quick chat, and an **SOS** safety signal
+- **Geofenced safe zone** — admins set a radius around their live position; the map shows the circle and everyone is alerted when a member crosses the boundary
+- **Admin map broadcasts** — Notice / Alert / Danger announcements rendered as dismissible overlays on the map
 - **Group invites** — code, share link and QR code; scanning a QR auto-joins the trip
 - **Admin controls** — promote/demote admins and remove members
 - **Chat** — group and 1:1 direct messages with **images and voice notes**

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { distanceMeters, formatDistance } from '../distance';
 import { searchPlaces } from '../geocode';
@@ -112,6 +112,15 @@ const createSearchIcon = () =>
     popupAnchor: [0, -30],
   });
 
+/** Small green dot marking the centre of the safe zone. */
+const createZoneIcon = () =>
+  L.divIcon({
+    className: 'custom-avatar-marker',
+    html: '<span class="zone-center"></span>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+
 /** Small helper actions rendered inside the Leaflet popup. */
 function PopupAction({ children, onClick, accent = false, disabled = false }) {
   return (
@@ -205,6 +214,7 @@ export default function LiveMap({
   currentUser,
   onAction,
   onAddStory,
+  safeZone = null,
 }) {
   const others = useMemo(() => Object.values(otherUsers || {}), [otherUsers]);
 
@@ -383,6 +393,34 @@ export default function LiveMap({
           locateSignal={locateSignal}
           flyTarget={searchTarget}
         />
+
+        {/* Geofenced safe zone — a circle centred on the admin's live position. */}
+        {safeZone?.enabled && safeZone.centerLat != null && safeZone.centerLng != null && (
+          <>
+            <Circle
+              center={[safeZone.centerLat, safeZone.centerLng]}
+              radius={safeZone.radiusM}
+              pathOptions={{
+                color: '#22c55e',
+                weight: 2,
+                opacity: 0.9,
+                dashArray: '8 7',
+                fillColor: '#22c55e',
+                fillOpacity: 0.07,
+              }}
+            >
+              <Tooltip permanent direction="top" className="safe-tooltip">
+                Safe zone · {formatDistance(safeZone.radiusM)}
+              </Tooltip>
+            </Circle>
+            {/* Marker at the zone centre */}
+            <Marker
+              position={[safeZone.centerLat, safeZone.centerLng]}
+              icon={createZoneIcon()}
+              interactive={false}
+            />
+          </>
+        )}
 
         {/* Road-wise route to the searched place — blue with a white casing. */}
         {searchTarget && (

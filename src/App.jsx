@@ -166,6 +166,11 @@ export default function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [dmUser, setDmUser] = useState(null);
 
+  // Safety features: safe zone, boundary breaches, admin broadcasts.
+  const [safeZone, setSafeZone] = useState(null);
+  const [breaches, setBreaches] = useState([]);
+  const [broadcasts, setBroadcasts] = useState([]);
+
   const groupId = activeGroup?.id ?? null;
   const currentUser = useMemo(
     () =>
@@ -328,6 +333,51 @@ export default function App() {
     const onSosCleared = (payload) =>
       pushToast({ icon: '✓', title: 'SOS cleared', body: `${payload?.fromUserId ? 'A member' : 'The group'} is safe now.` });
 
+    // --- Safe zone ---
+    const onSafeZone = (zone) => setSafeZone(zone && zone.enabled ? zone : null);
+
+    const onBreach = (payload) => {
+      // Audio + haptics so it can't be missed, plus a banner over the map.
+      vibrate([300, 100, 300, 100, 500]);
+      playRingtone({ duration: 4000 });
+      setBreaches((prev) =>
+        prev.some((b) => b.userId === payload.userId) ? prev : [...prev, payload]
+      );
+      pushToast({
+        icon: '⚠',
+        title: `${payload.name} left the safe radius`,
+        body: `${formatDistance(payload.distanceM)} from the zone`,
+        alert: true,
+      }, { timeout: 12000 });
+    };
+
+    const onRestored = (payload) => {
+      setBreaches((prev) => prev.filter((b) => b.userId !== payload.userId));
+      pushToast({
+        icon: '✓',
+        title: `${payload.name} is back inside`,
+        body: `Within the ${formatDistance(payload.radiusM)} safe zone`,
+      });
+    };
+
+    // --- Admin map broadcasts ---
+    const onBroadcast = (payload) => {
+      if (payload?.type === 'danger') {
+        playRingtone({ duration: 4000 });
+        vibrate([250, 90, 250, 90, 450]);
+      } else if (payload?.type === 'warning') {
+        vibrate([180, 80, 180]);
+      }
+      setBroadcasts((prev) => [...prev, payload]);
+      const label = payload?.type === 'danger' ? 'Danger' : payload?.type === 'warning' ? 'Alert' : 'Notice';
+      pushToast({
+        icon: payload?.type === 'danger' ? '🚨' : payload?.type === 'warning' ? '⚠' : '📢',
+        title: `${label}: ${payload?.title || 'Admin broadcast'}`,
+        body: payload?.message,
+        alert: payload?.type !== 'notice',
+      });
+    };
+
     socket.on('vibrate', onVibrate);
     socket.on('ring', onRing);
     socket.on('ring-stopped', onRingStopped);
@@ -337,6 +387,10 @@ export default function App() {
     socket.on('sos', onSos);
     socket.on('sos-sent', onSosSent);
     socket.on('sos-cleared', onSosCleared);
+    socket.on('safe-zone-updated', onSafeZone);
+    socket.on('boundary-breach-alert', onBreach);
+    socket.on('boundary-restored', onRestored);
+    socket.on('admin-broadcast-message', onBroadcast);
     socket.on('story-updated', refreshStories);
     socket.on('story-deleted', refreshStories);
 
@@ -350,6 +404,10 @@ export default function App() {
       socket.off('sos', onSos);
       socket.off('sos-sent', onSosSent);
       socket.off('sos-cleared', onSosCleared);
+      socket.off('safe-zone-updated', onSafeZone);
+      socket.off('boundary-breach-alert', onBreach);
+      socket.off('boundary-restored', onRestored);
+      socket.off('admin-broadcast-message', onBroadcast);
       socket.off('story-updated', refreshStories);
       socket.off('story-deleted', refreshStories);
     };
@@ -380,6 +438,26 @@ export default function App() {
       active = false;
     };
   }, [groupId, groupsRefresh]);
+
+  /* ------------------------------------- load the trip's safe zone on switch */
+  useEffect(() => {
+    setBreaches([]);
+    setBroadcasts([]);
+    if (!groupId) {
+      setSafeZone(null);
+      return undefined;
+    }
+    let active = true;
+    api
+      .get(`/api/safezone/${groupId}`)
+      .then((res) => {
+        if (active) setSafeZone(res.data?.zone?.enabled ? res.data.zone : null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [groupId]);
 
   /* --------------------------------------- auto-join via invite link / QR */
   const handleSelectGroup = useCallback((group) => {
@@ -494,6 +572,9 @@ export default function App() {
     setMemberList([]);
     setToasts([]);
     setRinging(null);
+    setSafeZone(null);
+    setBreaches([]);
+    setBroadcasts([]);
     setView('landing');
     setAuthIntent(null);
     setQrJoinOpen(false);
@@ -586,10 +667,80 @@ export default function App() {
     setRinging(null);
   }, [ringing]);
 
+  /* ------------------------------------------------ safety feature actions */
+  const setSafeZoneRadius = useCallback(
+    (radiusM) =>
+      new Promise((resolve) => {
+        if (!socket) {
+          resolve(false);
+          return;
+        }
+        socket.emit(
+          'set-safe-zone',
+          {
+            groupId: groupIdRef.current,
+            radiusM,
+            enabled: true,
+            centerLat: myLocation?.lat ?? null,
+            centerLng: myLocation?.lng ?? null,
+          },
+          (res) => {
+            if (res?.error) {
+              pushToast({ icon: '⚠', title: res.error });
+              resolve(false);
+            } else {
+              pushToast({ icon: '◎', title: 'Safe zone updated', body: `${radiusM} m radius` });
+              resolve(true);
+            }
+          }
+        );
+      }),
+    [socket, myLocation, pushToast]
+  );
+
+  const disableSafeZone = useCallback(() => {
+    socket?.emit('disable-safe-zone', { groupId: groupIdRef.current });
+    pushToast({ icon: '◎', title: 'Safe zone turned off' });
+  }, [socket, pushToast]);
+
+  const sendBroadcast = useCallback(
+    (payload) =>
+      new Promise((resolve, reject) => {
+        if (!socket) {
+          reject(new Error('Not connected'));
+          return;
+        }
+        socket.emit('admin-broadcast', { groupId: groupIdRef.current, ...payload }, (res) => {
+          if (res?.error) {
+            pushToast({ icon: '⚠', title: res.error });
+            reject(new Error(res.error));
+          } else {
+            resolve(res?.broadcast);
+          }
+        });
+      }),
+    [socket, pushToast]
+  );
+
+  const dismissBroadcast = useCallback(
+    (id) => setBroadcasts((prev) => prev.filter((b) => b.id !== id)),
+    []
+  );
+  const dismissBreach = useCallback(
+    (userId) => setBreaches((prev) => prev.filter((b) => b.userId !== userId)),
+    []
+  );
+
   const sheetDistance = useMemo(() => {
     if (!actionUser || !myLocation || actionUser.userId === currentUser?.id) return '';
     return formatDistance(distanceMeters(myLocation, actionUser));
   }, [actionUser, myLocation, currentUser?.id]);
+
+  /* ------------------------------------------------- safety: is admin? */
+  const isAdmin = useMemo(
+    () => memberList.some((m) => m.id === currentUser?.id && m.role === 'admin'),
+    [memberList, currentUser?.id]
+  );
 
   if (loading) {
     return (
@@ -806,6 +957,15 @@ export default function App() {
                         groupId={groupId}
                         onAction={handleAction}
                         onAddStory={() => setComposerOpen(true)}
+                        safeZone={safeZone}
+                        isAdmin={isAdmin}
+                        onSetSafeZone={setSafeZoneRadius}
+                        onDisableSafeZone={disableSafeZone}
+                        broadcasts={broadcasts}
+                        onDismissBroadcast={dismissBroadcast}
+                        breaches={breaches}
+                        onDismissBreach={dismissBreach}
+                        onSendBroadcast={sendBroadcast}
                       />
                     </div>
                   </div>

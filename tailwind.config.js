@@ -65,6 +65,19 @@ export default {
           500: '#ef4444',
           600: '#dc2626',
         },
+        // Admin broadcast severities — the only other sanctioned colour.
+        notice: {
+          DEFAULT: '#3b82f6',
+          300: '#93c5fd',
+          500: '#3b82f6',
+          600: '#2563eb',
+        },
+        warning: {
+          DEFAULT: '#f59e0b',
+          300: '#fcd34d',
+          500: '#f59e0b',
+          600: '#d97706',
+        },
       },
       boxShadow: {
         card: '0 1px 0 rgba(255,255,255,0.03), 0 18px 40px -28px rgba(0,0,0,0.9)',

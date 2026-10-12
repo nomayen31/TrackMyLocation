@@ -4,8 +4,11 @@ import MapStatsBar from './MapStatsBar';
 import WeatherWidget from './WeatherWidget';
 import NearbyMembersWidget from './NearbyMembersWidget';
 import QuickChat from './QuickChat';
+import MapAlertOverlay from './MapAlertOverlay';
+import SafeZonePanel from './SafeZonePanel';
+import BroadcastPanel from './BroadcastPanel';
 import useWeather from '../weather';
-import { distanceMeters } from '../distance';
+import { distanceMeters, formatDistance } from '../distance';
 
 /* -------------------------------------------------------------------------
  * Small building blocks
@@ -16,6 +19,9 @@ function RailButton({ label, active = false, onClick, tone = 'default', children
       ? 'border-white bg-white text-mono-950'
       : 'border-mono-800 bg-mono-900/90 text-white hover:border-mono-600',
     sos: 'border-sos/70 bg-sos text-white sos-pulse hover:bg-sos-600',
+    accent: active
+      ? 'border-accent bg-accent text-mono-950'
+      : 'border-accent/50 bg-mono-900/90 text-accent-300 hover:border-accent',
   };
   return (
     <button
@@ -80,8 +86,9 @@ function SosDialog({ groupName, message, onMessage, onCancel, onConfirm }) {
 }
 
 /**
- * ExpeditionMap — the framed, rounded map card with a live stats top bar and
- * floating widgets (weather, nearby members, quick chat, and SOS).
+ * ExpeditionMap — the framed, rounded map card with a live stats top bar,
+ * floating widgets (weather, nearby members, quick chat, SOS), the geofenced
+ * safe zone, boundary-breach banners and admin map broadcasts.
  */
 export default function ExpeditionMap({
   groupName,
@@ -93,16 +100,25 @@ export default function ExpeditionMap({
   groupId,
   onAction,
   onAddStory,
+  // Safety features
+  safeZone = null,
+  isAdmin = false,
+  onSetSafeZone,
+  onDisableSafeZone,
+  broadcasts = [],
+  onDismissBroadcast,
+  breaches = [],
+  onDismissBreach,
+  onSendBroadcast,
 }) {
   const others = useMemo(() => Object.values(otherUsers || {}), [otherUsers]);
   const weather = useWeather(myLocation);
 
-  const [panel, setPanel] = useState(null); // 'nearby' | 'chat' | null
+  const [panel, setPanel] = useState(null); // 'nearby' | 'chat' | 'safe' | 'broadcast' | null
   const [sosOpen, setSosOpen] = useState(false);
   const [sosMessage, setSosMessage] = useState('');
   const [sosActive, setSosActive] = useState(false);
 
-  // Group members sorted by distance.
   const members = useMemo(
     () =>
       others
@@ -118,6 +134,7 @@ export default function ExpeditionMap({
   const sharing = others.length;
   const nearest = members.length ? members[0].meters : null;
   const farthest = members.length ? members[members.length - 1].meters : null;
+  const zoneActive = Boolean(safeZone?.enabled);
 
   const sendSos = useCallback(() => {
     socket?.emit('sos-alert', {
@@ -143,6 +160,8 @@ export default function ExpeditionMap({
     setSosActive(false);
   }, [socket, groupId]);
 
+  const topAlerts = sosActive || breaches.length > 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
       <MapStatsBar
@@ -162,6 +181,7 @@ export default function ExpeditionMap({
           currentUser={currentUser}
           onAction={onAction}
           onAddStory={onAddStory}
+          safeZone={safeZone}
         />
 
         {/* Weather widget (desktop — the stats bar shows a chip on phones) */}
@@ -180,6 +200,7 @@ export default function ExpeditionMap({
               <path d="M20 19v-1.5a3.5 3.5 0 0 0-2.6-3.4" />
             </svg>
           </RailButton>
+
           <RailButton
             label="Quick chat"
             active={panel === 'chat'}
@@ -189,6 +210,32 @@ export default function ExpeditionMap({
               <path d="M20 12a7 7 0 0 1-7 7H9l-4 3v-4.6A7 7 0 0 1 11 5h2a7 7 0 0 1 7 7z" />
             </svg>
           </RailButton>
+
+          <RailButton
+            label={zoneActive ? 'Safe zone (active)' : 'Safe zone'}
+            tone="accent"
+            active={panel === 'safe'}
+            onClick={() => setPanel((p) => (p === 'safe' ? null : 'safe'))}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" className="h-5 w-5">
+              <circle cx="12" cy="12" r="8.5" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </RailButton>
+
+          {isAdmin && (
+            <RailButton
+              label="Broadcast to map"
+              active={panel === 'broadcast'}
+              onClick={() => setPanel((p) => (p === 'broadcast' ? null : 'broadcast'))}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                <path d="M4 10v4a1 1 0 0 0 1 1h2l4 3V6L7 9H5a1 1 0 0 0-1 1z" />
+                <path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7 7 0 0 1 0 11" />
+              </svg>
+            </RailButton>
+          )}
+
           <RailButton label="Send SOS" tone="sos" onClick={() => setSosOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-5 w-5">
               <path d="M12 3 2 20h20z" />
@@ -196,6 +243,57 @@ export default function ExpeditionMap({
             </svg>
           </RailButton>
         </div>
+
+        {/* High-priority top alerts (SOS + boundary breaches) */}
+        {topAlerts && (
+          <div className="absolute inset-x-3 top-3 z-[1300] flex flex-col gap-2 sm:inset-x-auto sm:left-1/2 sm:w-[24rem] sm:-translate-x-1/2">
+            {sosActive && (
+              <div className="flex items-center gap-3 rounded-2xl border border-sos/50 bg-sos/20 px-3 py-2.5 backdrop-blur">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sos text-white sos-pulse">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
+                    <path d="M12 3 2 20h20z" />
+                    <path d="M12 9v5M12 17h.01" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1 text-xs font-semibold text-white">
+                  SOS active — your group has been alerted
+                </span>
+                <button type="button" onClick={clearSos} className="btn btn-secondary btn-sm shrink-0">
+                  Clear
+                </button>
+              </div>
+            )}
+
+            {breaches.map((b) => (
+              <div
+                key={b.userId}
+                className="alert-shake flex items-center gap-3 rounded-2xl border border-sos/60 bg-sos/20 px-3 py-2.5 backdrop-blur"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sos text-white">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
+                    <path d="M12 3 2 20h20z" />
+                    <path d="M12 9v5M12 17h.01" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-bold text-white">
+                    {b.name} has left the safe radius area!
+                  </span>
+                  <span className="block text-[10px] font-medium text-mono-200">
+                    {formatDistance(b.distanceM)} from the zone · radius {formatDistance(b.radiusM)}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onDismissBreach?.(b.userId)}
+                  className="btn btn-secondary btn-sm shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Nearby members panel */}
         {panel === 'nearby' && (
@@ -207,23 +305,8 @@ export default function ExpeditionMap({
           />
         )}
 
-        {/* SOS active banner */}
-        {sosActive && (
-          <div className="absolute inset-x-3 top-3 z-[1250] flex items-center gap-3 rounded-2xl border border-sos/50 bg-sos/15 px-3 py-2.5 backdrop-blur sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sos text-white sos-pulse">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
-                <path d="M12 3 2 20h20z" />
-                <path d="M12 9v5M12 17h.01" />
-              </svg>
-            </span>
-            <span className="min-w-0 flex-1 text-xs font-semibold text-white">
-              SOS active — your group has been alerted
-            </span>
-            <button type="button" onClick={clearSos} className="btn btn-secondary btn-sm shrink-0">
-              Clear
-            </button>
-          </div>
-        )}
+        {/* Admin broadcast overlay (modal-like, over the map canvas) */}
+        <MapAlertOverlay queue={broadcasts} onDismiss={onDismissBroadcast} />
       </div>
 
       {/* Quick chat overlay */}
@@ -234,6 +317,23 @@ export default function ExpeditionMap({
           currentUser={currentUser}
           onClose={() => setPanel(null)}
         />
+      )}
+
+      {panel === 'safe' && (
+        <SafeZonePanel
+          safeZone={safeZone}
+          isAdmin={isAdmin}
+          onClose={() => setPanel(null)}
+          onSet={(radiusM) => onSetSafeZone?.(radiusM)}
+          onDisable={() => {
+            onDisableSafeZone?.();
+            setPanel(null);
+          }}
+        />
+      )}
+
+      {panel === 'broadcast' && isAdmin && (
+        <BroadcastPanel onClose={() => setPanel(null)} onSend={onSendBroadcast} />
       )}
 
       {sosOpen && (
