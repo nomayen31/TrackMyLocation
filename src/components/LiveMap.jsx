@@ -3,10 +3,13 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } fro
 import L from 'leaflet';
 import { distanceMeters, formatDistance } from '../distance';
 import { searchPlaces } from '../geocode';
+import { getRoute, formatDuration, ROUTE_MODES } from '../routing';
 import { MAPTILER_KEY } from '../mapKey';
 
 // The one accent colour that survives the monochrome theme.
 const GREEN = '#22c55e';
+// Road-wise route line (Google-Maps style blue with a white casing).
+const ROUTE_BLUE = '#3b82f6';
 
 /* ---------------------------------------------------------------------------
  * Base maps.
@@ -131,6 +134,45 @@ function PopupAction({ children, onClick, accent = false, disabled = false }) {
   );
 }
 
+/** Small travel-mode icon for the route panel. */
+function ModeIcon({ mode, className = 'h-4 w-4' }) {
+  const common = {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.7,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    className,
+  };
+  if (mode === 'walking') {
+    return (
+      <svg {...common}>
+        <circle cx="13" cy="4.2" r="1.6" />
+        <path d="m10.5 20 1.4-4.4-2.4-2.3 1-3.6 3 .9 1.7 3.1 2.3 1.2" />
+        <path d="M8.2 20l1.3-3.1" />
+      </svg>
+    );
+  }
+  if (mode === 'cycling') {
+    return (
+      <svg {...common}>
+        <circle cx="6" cy="17" r="3" />
+        <circle cx="18" cy="17" r="3" />
+        <path d="M6 17 10 8h4l3 9M9.6 12h4.8" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M5 16v-2.6l1.6-4.4A2 2 0 0 1 8.5 7.6h7a2 2 0 0 1 1.9 1.4L19 13.4V16" />
+      <path d="M4.5 16h15v2.6h-15z" />
+      <circle cx="7.6" cy="19" r="1.3" />
+      <circle cx="16.4" cy="19" r="1.3" />
+    </svg>
+  );
+}
+
 /** Imperative bits that need the Leaflet map instance. */
 function MapBridge({ myLocation, locateSignal, flyTarget }) {
   const map = useMap();
@@ -181,6 +223,11 @@ export default function LiveMap({
   const [searchError, setSearchError] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [searchTarget, setSearchTarget] = useState(null);
+
+  // Road-wise route to the searched place.
+  const [routeMode, setRouteMode] = useState('driving');
+  const [route, setRoute] = useState(null);
+  const [routing, setRouting] = useState(false);
 
   const activeStyle = MAP_STYLES[styleId] || MAP_STYLES[DEFAULT_STYLE];
 
@@ -238,6 +285,40 @@ export default function LiveMap({
     () => (searchTarget && myLocation ? distanceMeters(myLocation, searchTarget) : null),
     [searchTarget, myLocation]
   );
+
+  // Re-route only when the user has moved ~100 m (rounded coordinate key),
+  // so live GPS ticks don't hammer the routing API.
+  const originKey = myLocation
+    ? `${myLocation.lat.toFixed(3)},${myLocation.lng.toFixed(3)}`
+    : '';
+
+  useEffect(() => {
+    if (!searchTarget || !myLocation) {
+      setRoute(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setRouting(true);
+
+    const timer = setTimeout(() => {
+      getRoute(myLocation, searchTarget, routeMode, controller.signal)
+        .then((result) => setRoute(result))
+        .catch(() => {})
+        .finally(() => setRouting(false));
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // `originKey` stands in for myLocation so we only re-route after a move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTarget, routeMode, originKey]);
+
+  const routeDistance = route?.distanceMeters ?? searchDistance;
+  const routeDuration = route?.durationSeconds ?? null;
+  const routeApprox = route?.approx ?? false;
 
   const toggleMember = useCallback((userId) => {
     setExcluded((prev) => {
@@ -303,19 +384,35 @@ export default function LiveMap({
           flyTarget={searchTarget}
         />
 
-        {/* Live distance line: current user -> searched location (solid green). */}
+        {/* Road-wise route to the searched place — blue with a white casing. */}
         {searchTarget && (
-          <Polyline
-            positions={[
-              [myLocation.lat, myLocation.lng],
-              [searchTarget.lat, searchTarget.lng],
-            ]}
-            pathOptions={{ color: GREEN, weight: 3.5, opacity: 1 }}
-          >
-            <Tooltip permanent direction="center" className="distance-tooltip">
-              {formatDistance(searchDistance)}
-            </Tooltip>
-          </Polyline>
+          <>
+            {route && route.coordinates.length > 1 && (
+              <Polyline
+                positions={route.coordinates}
+                pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }}
+              />
+            )}
+            <Polyline
+              positions={
+                route && route.coordinates.length > 1
+                  ? route.coordinates
+                  : [
+                      [myLocation.lat, myLocation.lng],
+                      [searchTarget.lat, searchTarget.lng],
+                    ]
+              }
+              pathOptions={
+                route
+                  ? { color: ROUTE_BLUE, weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }
+                  : { color: ROUTE_BLUE, weight: 4, opacity: 0.9, dashArray: '6 8' }
+              }
+            >
+              <Tooltip permanent direction="center" className="route-tooltip">
+                {routing && !route ? '…' : formatDistance(routeDistance)}
+              </Tooltip>
+            </Polyline>
+          </>
         )}
 
         {/* Searched location pin */}
@@ -325,7 +422,11 @@ export default function LiveMap({
               <div className="text-left">
                 <p className="text-[13px] font-bold text-white">{searchTarget.name}</p>
                 <p className="mt-0.5 text-[11px] font-medium text-mono-400">
-                  {formatDistance(searchDistance)} from you
+                  {routing && !route
+                    ? 'Finding the route…'
+                    : `${formatDistance(routeDistance)}${
+                        routeDuration ? ` · ~${formatDuration(routeDuration)} ${routeApprox ? 'est.' : ''}` : ''
+                      }`}
                 </p>
                 <div className="mt-3">
                   <PopupAction onClick={clearSearch}>Clear location</PopupAction>
@@ -480,23 +581,6 @@ export default function LiveMap({
               </button>
             )}
           </div>
-
-          {/* Live distance readout for the selected place */}
-          {searchTarget && !showResults && (
-            <div className="mt-2 flex items-center gap-2 rounded-2xl border border-mono-800 bg-mono-900/95 px-3 py-2 shadow-card backdrop-blur">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-semibold text-white">
-                  {searchTarget.name}
-                </span>
-                <span className="block text-[11px] text-mono-400">
-                  {searchDistance == null
-                    ? 'Locating you…'
-                    : `${formatDistance(searchDistance)} away · straight line`}
-                </span>
-              </span>
-            </div>
-          )}
 
           {/* Suggestions */}
           {showResults && (results.length > 0 || searchError) && (
@@ -656,7 +740,11 @@ export default function LiveMap({
       </div>
 
       {/* Bottom-left: live status + locate */}
-      <div className="absolute bottom-4 left-3 z-[1000] flex flex-col items-start gap-2 sm:left-4">
+      <div
+        className={`absolute left-3 z-[1000] flex flex-col items-start gap-2 sm:left-4 ${
+          searchTarget ? 'bottom-[13rem] sm:bottom-4' : 'bottom-4'
+        }`}
+      >
         <div className="pointer-events-none flex items-center gap-2 rounded-full border border-mono-800 bg-mono-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-card backdrop-blur sm:text-xs">
           <span className="relative flex h-2 w-2 shrink-0">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
@@ -681,7 +769,95 @@ export default function LiveMap({
         </button>
       </div>
 
-      <div className="absolute bottom-4 right-3 z-[1000] sm:right-4">
+      {/* Route summary panel (Google-Maps style) */}
+      {searchTarget && (
+        <div className="absolute inset-x-0 bottom-0 z-[1300] sm:inset-x-auto sm:bottom-4 sm:left-1/2 sm:w-[25rem] sm:-translate-x-1/2">
+          <div className="rounded-t-3xl border border-mono-800 bg-mono-900/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.9rem)] pt-2.5 shadow-lift backdrop-blur sm:rounded-2xl sm:pb-3.5">
+            <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-mono-700 sm:hidden" />
+
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-mono-950">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
+                  <path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" />
+                  <circle cx="12" cy="10" r="2.4" />
+                </svg>
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-mono-500">
+                  Route to
+                </p>
+                <p className="truncate text-sm font-semibold text-white">
+                  {searchTarget.name.split(',')[0]}
+                </p>
+                <p className="truncate text-[11px] text-mono-400">{searchTarget.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear route"
+                className="btn btn-ghost -mr-1 -mt-1 shrink-0 p-2"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-4 w-4">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                {routing && !route ? (
+                  <div className="flex items-center gap-2 pb-0.5">
+                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-mono-600 border-t-white" />
+                    <span className="text-sm font-medium text-mono-400">Finding route…</span>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-3xl font-extrabold leading-none tracking-tight text-white">
+                      {formatDistance(routeDistance)}
+                    </p>
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-mono-400">
+                      {routeDuration ? (
+                        <>
+                          <span className="font-semibold text-mono-200">
+                            ~{formatDuration(routeDuration)}
+                          </span>
+                          <span>·</span>
+                        </>
+                      ) : null}
+                      <span className="text-blue-400">road route</span>
+                      {routeApprox ? <span>· est.</span> : null}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Travel-mode segmented control */}
+              <div className="flex shrink-0 gap-1 rounded-xl border border-mono-800 bg-mono-850 p-1">
+                {ROUTE_MODES.map((mode) => {
+                  const active = routeMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setRouteMode(mode.id)}
+                      title={mode.label}
+                      aria-pressed={active}
+                      className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                        active ? 'bg-white text-mono-950' : 'text-mono-300 hover:text-white'
+                      }`}
+                    >
+                      <ModeIcon mode={mode.id} />
+                      <span>{mode.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`absolute right-3 z-[1000] sm:right-4 ${searchTarget ? 'bottom-[13rem] sm:bottom-4' : 'bottom-4'}`}>
         <button
           type="button"
           onClick={() => onAddStory?.()}

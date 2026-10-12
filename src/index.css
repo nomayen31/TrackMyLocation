@@ -305,6 +305,21 @@
   display: none !important;
 }
 
+/* Blue variant used on the road-wise route line. */
+.route-tooltip {
+  background: #0a0a0b !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(59, 130, 246, 0.65) !important;
+  border-radius: 9999px !important;
+  padding: 2px 9px !important;
+  font: 700 11px/1.4 Inter, system-ui, sans-serif !important;
+  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.9) !important;
+}
+
+.route-tooltip::before {
+  display: none !important;
+}
+
 /* ------------------------------------------------------------- map markers */
 .custom-avatar-marker {
   background: transparent;

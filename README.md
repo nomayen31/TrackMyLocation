@@ -5,7 +5,7 @@ black & white minimalist UI.
 
 ## Features
 - Realtime group map (Leaflet + MapTiler Hybrid basemap) with live member markers
-- **Location search** for any place, with a live distance line from you to it
+- **Location search** for any place, with a road-wise blue route and live distance + ETA (drive/walk/cycle)
 - Green distance polylines between you and selected group members (`geolib`)
 - Story rings on avatars/markers with a full-screen story viewer
 - Direct messages, plus remote **Vibrate** and **Ring** alerts over Socket.IO
