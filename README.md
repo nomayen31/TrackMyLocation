@@ -16,6 +16,7 @@ cards, violet → cyan → emerald accents).
 - **Admin controls** — promote/demote admins and remove members
 - **Chat** — group and 1:1 direct messages with **images and voice notes**
 - **Voice calls** — free peer-to-peer 1-to-1 audio over WebRTC with Socket.IO signalling and STUN
+- **Voice rooms** — Discord-style group voice chat powered by LiveKit (create/join rooms, live participant counts, speaking indicators, invite-only private rooms)
 - **Stories** — photo/video/text with privacy tiers (trip group · everyone · selected people) and a **view-once** mode
 - Group chat, trip expenses with balances, and group management
 - Responsive layout: slide-over drawer + bottom navigation on mobile

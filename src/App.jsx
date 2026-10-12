@@ -20,6 +20,10 @@ import StoryComposer from './components/StoryComposer';
 import StoriesBar from './components/StoriesBar';
 import DirectMessages from './components/DirectMessages';
 import ProfileEditor from './components/ProfileEditor';
+import VoiceRoomList from './components/voice/VoiceRoomList';
+import VoiceRoom from './components/voice/VoiceRoom';
+import VoiceInvitationModal from './components/voice/VoiceInvitationModal';
+import useVoiceChat from './voice/useVoiceChat';
 import CallOverlay from './components/CallOverlay';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
 
@@ -73,6 +77,12 @@ const UsersIcon = (props) => (
   </svg>
 );
 
+const PhoneIcon = (props) => (
+  <svg {...iconProps} {...props}>
+    <path d="M5 4h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+  </svg>
+);
+
 const LogoutIcon = (props) => (
   <svg {...iconProps} {...props}>
     <path d="M15 5h2.5A1.5 1.5 0 0 1 19 6.5v11A1.5 1.5 0 0 1 17.5 19H15" />
@@ -114,10 +124,25 @@ const BellIcon = (props) => (
 
 const TABS = [
   { id: 'map', label: 'Map', Icon: MapIcon },
+  { id: 'voice', label: 'Voice', Icon: PhoneIcon },
   { id: 'chat', label: 'Chat', Icon: ChatIcon },
   { id: 'expenses', label: 'Expenses', Icon: WalletIcon },
   { id: 'members', label: 'Members', Icon: UsersIcon },
 ];
+
+/** Tab icon with an optional notification badge (voice invitations). */
+function TabIcon({ Icon, badge = 0, className = 'h-4 w-4' }) {
+  return (
+    <span className="relative inline-flex">
+      <Icon className={className} />
+      {badge > 0 && (
+        <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-[0.875rem] items-center justify-center rounded-full bg-sos px-0.5 text-[8px] font-bold text-white shadow-glowRose">
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+    </span>
+  );
+}
 
 /** Group a flat story list into `{ [userId]: { userId, name, avatarUrl, items } }`. */
 function groupStories(list) {
@@ -167,6 +192,7 @@ export default function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [dmUser, setDmUser] = useState(null);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [voiceInviteOpen, setVoiceInviteOpen] = useState(false);
 
   // Safety features: safe zone, boundary breaches, admin broadcasts.
   const [safeZone, setSafeZone] = useState(null);
@@ -222,6 +248,9 @@ export default function App() {
   );
   const callOptions = useMemo(() => ({ onNotice: handleCallNotice }), [handleCallNotice]);
   const call = useCall(socket, currentUser, callOptions);
+
+  // Discord-style group voice rooms (LiveKit). Reuses the app's socket.
+  const voice = useVoiceChat(socket, currentUser);
 
   /* --------------------------------------------------- audio unlock once */
   useEffect(() => installAudioUnlock(), []);
@@ -450,6 +479,25 @@ export default function App() {
       stopRingtone();
     };
   }, [call.state]);
+
+  // Surface a new voice invitation automatically (Discord-style).
+  const inviteCount = voice.invitations.length;
+  const prevInviteCount = useRef(0);
+  useEffect(() => {
+    if (inviteCount > prevInviteCount.current && !voice.activeRoom) {
+      setVoiceInviteOpen(true);
+      const latest = voice.invitations[0];
+      if (latest) {
+        vibrate([120, 60, 120]);
+        pushToast({
+          icon: '🔊',
+          title: `${latest.senderName || 'Someone'} invited you to voice`,
+          body: latest.roomName,
+        });
+      }
+    }
+    prevInviteCount.current = inviteCount;
+  }, [inviteCount, voice.invitations, voice.activeRoom, pushToast]);
 
   /* ------------------------------------------------- group members list */
   useEffect(() => {
@@ -985,7 +1033,7 @@ export default function App() {
                       aria-current={active ? 'page' : undefined}
                       className={`tab ${active ? 'tab-active' : ''}`}
                     >
-                      <t.Icon className="h-4 w-4" />
+                      <TabIcon Icon={t.Icon} badge={t.id === 'voice' ? voice.invitations.length : 0} />
                       <span className="hidden sm:inline">{t.label}</span>
                     </button>
                   );
@@ -1030,6 +1078,51 @@ export default function App() {
                   </div>
                 )}
                 {tab === 'chat' && <GroupChat socket={socket} groupId={groupId} currentUser={currentUser} />}
+                {tab === 'voice' && (
+                  <div className="flex h-full flex-col gap-4 overflow-y-auto bg-mono-950 p-4 sm:p-5">
+                    <div className="mx-auto w-full max-w-3xl">
+                      {!voice.configured && (
+                        <p className="mb-3 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs font-semibold text-warning-300">
+                          Voice is not configured on the server yet — add LIVEKIT_API_SECRET to the backend
+                          .env to enable audio. You can still create and browse rooms.
+                        </p>
+                      )}
+                      {voice.error && (
+                        <p className="mb-3 flex items-start gap-2 rounded-xl border border-sos/40 bg-sos/10 px-3 py-2.5 text-sm text-sos-300">
+                          <span className="flex-1">{voice.error}</span>
+                          <button type="button" onClick={voice.clearError} className="text-sos-300 hover:text-white">
+                            ✕
+                          </button>
+                        </p>
+                      )}
+
+                      {voice.activeRoom ? (
+                        <VoiceRoom
+                          room={voice.activeRoom}
+                          participants={voice.participants}
+                          speakingSet={voice.speakingSet}
+                          connectionState={voice.connectionState}
+                          muted={voice.muted}
+                          currentUser={currentUser}
+                          audioContainerRef={voice.audioContainerRef}
+                          onToggleMute={voice.toggleMute}
+                          onLeave={voice.leaveRoom}
+                          onOpenInvites={() => setVoiceInviteOpen(true)}
+                          onRefresh={voice.refreshRooms}
+                          busy={voice.busy}
+                        />
+                      ) : (
+                        <VoiceRoomList
+                          rooms={voice.rooms}
+                          activeRoomId={voice.activeRoom?.id}
+                          busy={voice.busy}
+                          onJoin={(room) => voice.joinRoom(room.id, { startMuted: false })}
+                          onCreate={voice.createRoom}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
                 {tab === 'expenses' && (
                   <ExpensePanel groupId={groupId} currentUser={currentUser} members={memberList} socket={socket} />
                 )}
@@ -1060,7 +1153,7 @@ export default function App() {
                       active ? 'bg-neon-tri text-white shadow-glowViolet' : 'text-mono-400'
                     }`}
                   >
-                    <t.Icon className="h-5 w-5" />
+                    <TabIcon Icon={t.Icon} badge={t.id === 'voice' ? voice.invitations.length : 0} className="h-5 w-5" />
                     {t.label}
                   </button>
                 );
@@ -1161,6 +1254,26 @@ export default function App() {
           user={currentUser}
           onClose={() => setProfileEditorOpen(false)}
           onSaved={handleProfileSaved}
+        />
+      )}
+
+      {voiceInviteOpen && (
+        <VoiceInvitationModal
+          invitations={voice.invitations}
+          roomName={voice.activeRoom?.name}
+          canInvite={Boolean(voice.activeRoom && voice.activeRoom.ownerId === currentUser.id)}
+          candidates={memberList.filter(
+            (m) =>
+              m.id !== currentUser.id &&
+              !voice.participants.some((p) => p.userId === m.id)
+          )}
+          onInvite={(userId) => voice.sendInvite(voice.activeRoom?.id, userId)}
+          onAccept={(id) => {
+            voice.acceptInvite(id);
+            setVoiceInviteOpen(false);
+          }}
+          onDecline={voice.declineInvite}
+          onClose={() => setVoiceInviteOpen(false)}
         />
       )}
 
