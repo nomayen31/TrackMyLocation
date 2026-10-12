@@ -379,6 +379,20 @@
   animation: beacon-pulse 1.8s ease-in-out infinite;
 }
 
+/* Monochrome teardrop pin for a searched location. */
+.search-pin {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.75));
+}
+
+.search-pin svg {
+  display: block;
+}
+
 /* --------------------------------------------------- story ring (in-app UI) */
 .story-ring-ui {
   background: conic-gradient(from 0deg, #22c55e, #ffffff, #22c55e, #ffffff, #22c55e);

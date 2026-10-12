@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { distanceMeters, formatDistance } from '../distance';
+import { searchPlaces } from '../geocode';
+import { MAPTILER_KEY } from '../mapKey';
 
 // The one accent colour that survives the monochrome theme.
 const GREEN = '#22c55e';
@@ -9,17 +11,12 @@ const GREEN = '#22c55e';
 /* ---------------------------------------------------------------------------
  * Base maps.
  *
- * MapTiler key: keep it out of source control in production by setting
- * VITE_MAPTILER_KEY in Frontend/.env — the literal below is only a fallback.
- * Restrict the key to your domains in the MapTiler dashboard.
- *
- * Leaflet is a raster client, so we use MapTiler's raster endpoints
- * (the vector `style.json` needs MapLibre GL, which this app does not bundle):
+ * The MapTiler key comes from src/mapKey.js (VITE_MAPTILER_KEY). Leaflet is a
+ * raster client, so we use MapTiler's raster endpoints — the vector
+ * `style.json` needs MapLibre GL, which this app does not bundle:
  *   512px  https://api.maptiler.com/maps/hybrid-v4/{z}/{x}/{y}.jpg
  *   256px  https://api.maptiler.com/maps/hybrid-v4/256/{z}/{x}/{y}.jpg
  * ------------------------------------------------------------------------- */
-const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || 'PAAtuckOiCsaL8MuwMIX';
-
 const MAPTILER_ATTRIBUTION =
   '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">&copy; MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
 
@@ -95,6 +92,23 @@ const createAvatarIcon = ({ name, avatarUrl, isMe = false, hasStory = false }) =
   });
 };
 
+/** Monochrome teardrop pin for a searched location. */
+const createSearchIcon = () =>
+  L.divIcon({
+    className: 'custom-avatar-marker',
+    html: `
+      <div class="search-pin">
+        <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
+          <path d="M12 2.6a6.9 6.9 0 0 0-6.9 6.9c0 4.9 6.9 12.1 6.9 12.1s6.9-7.2 6.9-12.1A6.9 6.9 0 0 0 12 2.6z"
+            fill="#ffffff" stroke="#0a0a0b" stroke-width="1.6" />
+          <circle cx="12" cy="9.4" r="2.6" fill="#0a0a0b" />
+        </svg>
+      </div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 32],
+    popupAnchor: [0, -30],
+  });
+
 /** Small helper actions rendered inside the Leaflet popup. */
 function PopupAction({ children, onClick, accent = false, disabled = false }) {
   return (
@@ -118,7 +132,7 @@ function PopupAction({ children, onClick, accent = false, disabled = false }) {
 }
 
 /** Imperative bits that need the Leaflet map instance. */
-function MapBridge({ myLocation, locateSignal }) {
+function MapBridge({ myLocation, locateSignal, flyTarget }) {
   const map = useMap();
   const lastSignal = useRef(0);
 
@@ -130,6 +144,14 @@ function MapBridge({ myLocation, locateSignal }) {
       });
     }
   }, [locateSignal, myLocation, map]);
+
+  // Pan to a searched location when a new one is selected.
+  React.useEffect(() => {
+    if (!flyTarget) return;
+    map.flyTo([flyTarget.lat, flyTarget.lng], Math.max(map.getZoom(), 13), {
+      duration: 0.9,
+    });
+  }, [flyTarget, map]);
 
   return null;
 }
@@ -152,7 +174,70 @@ export default function LiveMap({
   const [locateSignal, setLocateSignal] = useState(0);
   const wrapRef = useRef(null);
 
+  // Location search (Google-Maps style).
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const [searchTarget, setSearchTarget] = useState(null);
+
   const activeStyle = MAP_STYLES[styleId] || MAP_STYLES[DEFAULT_STYLE];
+
+  // Debounced forward geocoding as the user types.
+  useEffect(() => {
+    const q = query.trim();
+    // Skip when empty, too short, or already resolved to the chosen place.
+    if (q.length < 3 || (searchTarget && q === searchTarget.name)) {
+      setResults([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setSearching(true);
+    setSearchError('');
+
+    const timer = setTimeout(() => {
+      searchPlaces(q, controller.signal)
+        .then((found) => {
+          setResults(found);
+          setShowResults(true);
+          if (found.length === 0) setSearchError('No places found.');
+        })
+        .catch((err) => {
+          if (err?.name !== 'AbortError') setSearchError('Search is unavailable right now.');
+        })
+        .finally(() => setSearching(false));
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, searchTarget]);
+
+  const selectResult = useCallback((place) => {
+    setSearchTarget(place);
+    setQuery(place.name);
+    setResults([]);
+    setShowResults(false);
+    setSearchError('');
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchTarget(null);
+    setQuery('');
+    setResults([]);
+    setShowResults(false);
+    setSearchError('');
+  }, []);
+
+  // Live distance from the current user to the searched place — recomputed on
+  // every GPS update, so it updates in real time as you move.
+  const searchDistance = useMemo(
+    () => (searchTarget && myLocation ? distanceMeters(myLocation, searchTarget) : null),
+    [searchTarget, myLocation]
+  );
 
   const toggleMember = useCallback((userId) => {
     setExcluded((prev) => {
@@ -212,7 +297,44 @@ export default function LiveMap({
       >
         {/* `key` remounts the layer so tileSize/zoomOffset changes apply. */}
         <TileLayer key={activeStyle.id} url={activeStyle.url} {...activeStyle.options} />
-        <MapBridge myLocation={myLocation} locateSignal={locateSignal} />
+        <MapBridge
+          myLocation={myLocation}
+          locateSignal={locateSignal}
+          flyTarget={searchTarget}
+        />
+
+        {/* Live distance line: current user -> searched location (solid green). */}
+        {searchTarget && (
+          <Polyline
+            positions={[
+              [myLocation.lat, myLocation.lng],
+              [searchTarget.lat, searchTarget.lng],
+            ]}
+            pathOptions={{ color: GREEN, weight: 3.5, opacity: 1 }}
+          >
+            <Tooltip permanent direction="center" className="distance-tooltip">
+              {formatDistance(searchDistance)}
+            </Tooltip>
+          </Polyline>
+        )}
+
+        {/* Searched location pin */}
+        {searchTarget && (
+          <Marker position={[searchTarget.lat, searchTarget.lng]} icon={createSearchIcon()}>
+            <Popup>
+              <div className="text-left">
+                <p className="text-[13px] font-bold text-white">{searchTarget.name}</p>
+                <p className="mt-0.5 text-[11px] font-medium text-mono-400">
+                  {formatDistance(searchDistance)} from you
+                </p>
+                <div className="mt-3">
+                  <PopupAction onClick={clearSearch}>Clear location</PopupAction>
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
 
         {/* Green distance polylines: current user -> each selected member. */}
         {measured
@@ -319,21 +441,103 @@ export default function LiveMap({
         ))}
       </MapContainer>
 
-      {/* Live status pill */}
-      <div className="pointer-events-none absolute left-3 top-3 z-[1000] flex max-w-[calc(100%-6.5rem)] items-center gap-2 rounded-full border border-mono-800 bg-mono-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-card backdrop-blur sm:left-4 sm:top-4 sm:text-xs">
-        <span className="relative flex h-2 w-2 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-        </span>
-        <span className="truncate">You are live</span>
-        <span className="hidden text-mono-600 sm:inline">·</span>
-        <span className="hidden truncate text-mono-400 sm:inline">
-          {others.length} {others.length === 1 ? 'member' : 'members'} sharing
-        </span>
+      {/* Search any location + live distance from you */}
+      <div className="absolute left-3 right-3 top-3 z-[1200] sm:left-1/2 sm:right-auto sm:top-4 sm:w-[26rem] sm:-translate-x-1/2">
+        <div className="relative">
+          <div className="flex items-center gap-2 rounded-2xl border border-mono-800 bg-mono-900/95 px-3 py-2 shadow-lift backdrop-blur">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-4 w-4 shrink-0 text-mono-400">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m20 20-4.2-4.2" />
+            </svg>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => results.length > 0 && setShowResults(true)}
+              onBlur={() => setTimeout(() => setShowResults(false), 180)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && results[0]) selectResult(results[0]);
+                if (e.key === 'Escape') setShowResults(false);
+              }}
+              placeholder="Search any place…"
+              className="input-flush py-1"
+              aria-label="Search for a location"
+            />
+            {searching && (
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-mono-600 border-t-white" />
+            )}
+            {(query || searchTarget) && !searching && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={clearSearch}
+                aria-label="Clear search"
+                className="shrink-0 text-mono-400 hover:text-white"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-4 w-4">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Live distance readout for the selected place */}
+          {searchTarget && !showResults && (
+            <div className="mt-2 flex items-center gap-2 rounded-2xl border border-mono-800 bg-mono-900/95 px-3 py-2 shadow-card backdrop-blur">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold text-white">
+                  {searchTarget.name}
+                </span>
+                <span className="block text-[11px] text-mono-400">
+                  {searchDistance == null
+                    ? 'Locating you…'
+                    : `${formatDistance(searchDistance)} away · straight line`}
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* Suggestions */}
+          {showResults && (results.length > 0 || searchError) && (
+            <div className="mt-2 max-h-72 overflow-y-auto rounded-2xl border border-mono-800 bg-mono-900/95 p-1.5 shadow-lift backdrop-blur">
+              {results.length > 0 ? (
+                <ul className="flex flex-col">
+                  {results.map((place) => (
+                    <li key={place.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectResult(place)}
+                        className="flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left hover:bg-mono-800"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" className="mt-0.5 h-4 w-4 shrink-0 text-mono-500">
+                          <path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" />
+                          <circle cx="12" cy="10" r="2.4" />
+                        </svg>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-semibold text-white">
+                            {place.name.split(',')[0]}
+                          </span>
+                          <span className="block truncate text-[11px] text-mono-400">
+                            {place.name}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-3 py-2 text-xs text-mono-400">{searchError}</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Top-right controls: base map + distance selector + fullscreen */}
-      <div className="absolute right-3 top-3 z-[1000] flex flex-col items-end gap-2 sm:right-4 sm:top-4">
+      {/* Top-right controls: base map + distance selector + fullscreen
+          (pushed below the search bar on phones) */}
+      <div className="absolute right-3 top-[4.75rem] z-[1000] flex flex-col items-end gap-2 sm:right-4 sm:top-4">
         <div className="flex gap-2">
           <button
             type="button"
@@ -451,8 +655,19 @@ export default function LiveMap({
         )}
       </div>
 
-      {/* Bottom-left: locate + add story */}
-      <div className="absolute bottom-4 left-3 z-[1000] flex flex-col gap-2 sm:left-4">
+      {/* Bottom-left: live status + locate */}
+      <div className="absolute bottom-4 left-3 z-[1000] flex flex-col items-start gap-2 sm:left-4">
+        <div className="pointer-events-none flex items-center gap-2 rounded-full border border-mono-800 bg-mono-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-card backdrop-blur sm:text-xs">
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+          </span>
+          <span className="truncate">You are live</span>
+          <span className="hidden text-mono-600 sm:inline">·</span>
+          <span className="hidden truncate text-mono-400 sm:inline">
+            {others.length} {others.length === 1 ? 'member' : 'members'} sharing
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => setLocateSignal((n) => n + 1)}
