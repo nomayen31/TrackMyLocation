@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client';
 import api from './api';
 import { distanceMeters, formatDistance } from './distance';
+import { readInviteToken, clearInviteFromUrl } from './invite';
+import useCall from './useCall';
 import LiveMap from './components/LiveMap';
 import GroupChat from './components/GroupChat';
 import GroupManager from './components/GroupManager';
@@ -13,7 +15,9 @@ import ToastStack from './components/ToastStack';
 import MemberActionSheet from './components/MemberActionSheet';
 import StoryViewer from './components/StoryViewer';
 import StoryComposer from './components/StoryComposer';
+import StoriesBar from './components/StoriesBar';
 import DirectMessages from './components/DirectMessages';
+import CallOverlay from './components/CallOverlay';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
 
 const API = 'http://localhost:5000';
@@ -112,6 +116,25 @@ const TABS = [
   { id: 'members', label: 'Members', Icon: UsersIcon },
 ];
 
+/** Group a flat story list into `{ [userId]: { userId, name, avatarUrl, items } }`. */
+function groupStories(list) {
+  const map = {};
+  for (const story of list) {
+    if (!map[story.userId]) {
+      map[story.userId] = {
+        userId: story.userId,
+        name: story.name,
+        avatarUrl: story.avatarUrl,
+        items: [],
+      };
+    }
+    map[story.userId].items.push(story);
+    map[story.userId].name = story.name || map[story.userId].name;
+    map[story.userId].avatarUrl = story.avatarUrl || map[story.userId].avatarUrl;
+  }
+  return map;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -120,11 +143,13 @@ export default function App() {
   const [tab, setTab] = useState('map');
   const [myLocation, setMyLocation] = useState(null);
   const [groupMembers, setGroupMembers] = useState({});
+  const [memberList, setMemberList] = useState([]);
+  const [groupsRefresh, setGroupsRefresh] = useState(0);
   const [copied, setCopied] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Stories, notifications and the map/DM overlays.
-  const [storyMap, setStoryMap] = useState({});
+  // Stories, notifications and overlays.
+  const [storiesFeed, setStoriesFeed] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [ringing, setRinging] = useState(null);
   const [actionUser, setActionUser] = useState(null);
@@ -145,6 +170,7 @@ export default function App() {
   const groupIdRef = useRef(null);
   const dmUserRef = useRef(null);
   const toastId = useRef(0);
+  const inviteHandled = useRef(false);
 
   useEffect(() => {
     groupIdRef.current = groupId;
@@ -165,6 +191,14 @@ export default function App() {
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  /* ----------------------------------------------------- voice call state */
+  const handleCallNotice = useCallback(
+    (message) => pushToast({ icon: '☏', title: message }),
+    [pushToast]
+  );
+  const callOptions = useMemo(() => ({ onNotice: handleCallNotice }), [handleCallNotice]);
+  const call = useCall(socket, currentUser, callOptions);
 
   /* --------------------------------------------------- audio unlock once */
   useEffect(() => installAudioUnlock(), []);
@@ -191,6 +225,28 @@ export default function App() {
     setSocket(s);
     return () => s.disconnect();
   }, [user]);
+
+  /* --------------------------------------------------------------- stories */
+  const refreshStories = useCallback(async () => {
+    try {
+      const res = await api.get('/api/stories/feed');
+      setStoriesFeed(res.data || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) refreshStories();
+  }, [user, groupId, refreshStories]);
+
+  // All visible stories grouped by author (drives the rail + viewer)…
+  const storyMap = useMemo(() => groupStories(storiesFeed), [storiesFeed]);
+  // …and the subset for the active trip (drives map rings + members list).
+  const groupStoryMap = useMemo(
+    () => groupStories(storiesFeed.filter((s) => Number(s.groupId) === Number(groupId))),
+    [storiesFeed, groupId]
+  );
 
   /* --------------------------------------- realtime social notifications */
   useEffect(() => {
@@ -224,107 +280,112 @@ export default function App() {
     };
 
     const onDm = (dm) => {
-      // Ignore our own echoes and the conversation that is already open.
       if (dm.from_user === currentUser?.id) return;
       if (dmUserRef.current?.userId === dm.from_user) return;
       pushToast({
         icon: '✉',
         title: `Message from ${dm.fromName || 'a member'}`,
-        body: dm.message,
+        body: dm.attachment_type && !dm.message ? 'Sent an attachment' : dm.message,
       });
     };
 
-    const upsertStory = (story) => {
-      if (story.groupId !== groupIdRef.current) return;
-      setStoryMap((prev) => {
-        const entry =
-          prev[story.userId] || {
-            userId: story.userId,
-            name: story.name,
-            avatarUrl: story.avatarUrl,
-            items: [],
-          };
-        const items = entry.items
-          .filter((s) => s.id !== story.id)
-          .concat(story)
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        return {
-          ...prev,
-          [story.userId]: {
-            ...entry,
-            name: story.name || entry.name,
-            avatarUrl: story.avatarUrl || entry.avatarUrl,
-            items,
-          },
-        };
-      });
+    const onGroupUpdated = (payload) => {
+      if (Number(payload?.groupId) !== Number(groupIdRef.current)) return;
+      api.get(`/api/groups/${payload.groupId}/members`).then((res) => setMemberList(res.data || [])).catch(() => {});
     };
 
-    const onStoryDeleted = ({ id }) => {
-      setStoryMap((prev) => {
-        const next = {};
-        for (const [key, entry] of Object.entries(prev)) {
-          const items = entry.items.filter((s) => s.id !== id);
-          if (items.length > 0) next[key] = { ...entry, items };
-        }
-        return next;
-      });
+    const onRemoved = ({ groupId: removedId }) => {
+      if (Number(removedId) !== Number(groupIdRef.current)) return;
+      setActiveGroup(null);
+      setGroupMembers({});
+      setMemberList([]);
+      setGroupsRefresh((n) => n + 1);
+      pushToast({ icon: '⚠', title: 'You were removed from a trip', body: 'An admin removed you.' });
     };
 
     socket.on('vibrate', onVibrate);
     socket.on('ring', onRing);
     socket.on('ring-stopped', onRingStopped);
     socket.on('receive-dm', onDm);
-    socket.on('story-updated', upsertStory);
-    socket.on('story-deleted', onStoryDeleted);
+    socket.on('group-updated', onGroupUpdated);
+    socket.on('removed-from-group', onRemoved);
+    socket.on('story-updated', refreshStories);
+    socket.on('story-deleted', refreshStories);
 
     return () => {
       socket.off('vibrate', onVibrate);
       socket.off('ring', onRing);
       socket.off('ring-stopped', onRingStopped);
       socket.off('receive-dm', onDm);
-      socket.off('story-updated', upsertStory);
-      socket.off('story-deleted', onStoryDeleted);
+      socket.off('group-updated', onGroupUpdated);
+      socket.off('removed-from-group', onRemoved);
+      socket.off('story-updated', refreshStories);
+      socket.off('story-deleted', refreshStories);
     };
-  }, [socket, currentUser?.id, pushToast]);
+  }, [socket, currentUser?.id, pushToast, refreshStories]);
 
-  /* --------------------------------------------------- load active stories */
+  // Ring the device while a call is incoming.
+  useEffect(() => {
+    if (call.state !== 'incoming') return undefined;
+    const stop = playRingtone({ duration: 30000 });
+    return () => {
+      stop();
+      stopRingtone();
+    };
+  }, [call.state]);
+
+  /* ------------------------------------------------- group members list */
   useEffect(() => {
     if (!groupId) {
-      setStoryMap({});
+      setMemberList([]);
       return undefined;
     }
     let active = true;
     api
-      .get(`/api/stories/group/${groupId}`)
-      .then((res) => {
-        if (!active) return;
-        const map = {};
-        for (const story of res.data || []) {
-          if (!map[story.userId]) {
-            map[story.userId] = {
-              userId: story.userId,
-              name: story.name,
-              avatarUrl: story.avatarUrl,
-              items: [],
-            };
-          }
-          map[story.userId].items.push(story);
-        }
-        setStoryMap(map);
-      })
+      .get(`/api/groups/${groupId}/members`)
+      .then((res) => active && setMemberList(res.data || []))
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [groupId]);
+  }, [groupId, groupsRefresh]);
 
+  /* --------------------------------------- auto-join via invite link / QR */
   const handleSelectGroup = useCallback((group) => {
     setActiveGroup(group);
     setGroupMembers({});
     setTab('map');
     setSidebarOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (!user || inviteHandled.current) return;
+    const token = readInviteToken();
+    if (!token) return;
+    inviteHandled.current = true;
+
+    api
+      .post(`/api/groups/invite/${encodeURIComponent(token)}/join`)
+      .then((res) => {
+        const group = res.data.group;
+        clearInviteFromUrl();
+        setGroupsRefresh((n) => n + 1);
+        pushToast({
+          icon: '🧭',
+          title: res.data.alreadyMember ? `Already in ${group.name}` : `Joined ${group.name}`,
+          body: 'Trip added to your list',
+        });
+        if (group) handleSelectGroup(group);
+      })
+      .catch((err) => {
+        clearInviteFromUrl();
+        pushToast({
+          icon: '⚠',
+          title: 'Invite failed',
+          body: err.response?.data?.error || 'This invite link is invalid',
+        });
+      });
+  }, [user, pushToast, handleSelectGroup]);
 
   // Let Escape dismiss the phone drawer.
   useEffect(() => {
@@ -372,6 +433,7 @@ export default function App() {
     return () => {
       if (watchId != null) navigator.geolocation.clearWatch(watchId);
       socket.off('user-moved');
+      socket.emit('leave-group', { groupId });
     };
   }, [socket, currentUser, groupId]);
 
@@ -393,7 +455,8 @@ export default function App() {
     setActiveGroup(null);
     setMyLocation(null);
     setGroupMembers({});
-    setStoryMap({});
+    setStoriesFeed([]);
+    setMemberList([]);
     setToasts([]);
     setRinging(null);
   };
@@ -409,23 +472,40 @@ export default function App() {
     }
   };
 
-  /* ------------------------------------------------- map action dispatch */
+  /* --------------------------------------------------- story interactions */
   const openStory = useCallback(
-    (member) => {
-      const entry = storyMap[member.userId];
+    (target) => {
+      const userId = typeof target === 'string' ? target : target?.userId;
+      if (!userId) return;
+      const entry = storyMap[userId];
       if (!entry || entry.items.length === 0) {
-        pushToast({ icon: '◎', title: 'No active story', body: `${member.name} has no story right now` });
+        pushToast({
+          icon: '◎',
+          title: 'No active story',
+          body: `${target?.name || 'They'} have nothing up right now`,
+        });
         return;
       }
-      setStoryUser({
-        userId: member.userId,
-        name: entry.name || member.name,
-        avatarUrl: entry.avatarUrl || member.avatarUrl,
-      });
+      setStoryUser({ userId, name: entry.name, avatarUrl: entry.avatarUrl });
     },
     [storyMap, pushToast]
   );
 
+  const handleDeleteStory = useCallback(
+    async (id) => {
+      try {
+        await api.delete(`/api/stories/${id}`);
+        await refreshStories();
+        setStoryUser(null);
+        pushToast({ icon: '🗑', title: 'Story deleted' });
+      } catch {
+        pushToast({ icon: '⚠', title: 'Could not delete story' });
+      }
+    },
+    [refreshStories, pushToast]
+  );
+
+  /* ------------------------------------------------- map action dispatch */
   const handleAction = useCallback(
     (type, member) => {
       if (!member?.userId) return;
@@ -437,6 +517,11 @@ export default function App() {
       if (type === 'dm') {
         setActionUser(null);
         setDmUser(member);
+        return;
+      }
+      if (type === 'call') {
+        setActionUser(null);
+        call.startCall(member, groupIdRef.current);
         return;
       }
       if (type === 'sheet') {
@@ -454,7 +539,7 @@ export default function App() {
         pushToast({ icon: '🔔', title: `Ringing ${member.name}`, body: 'Alert sent to their device' });
       }
     },
-    [socket, openStory, pushToast]
+    [socket, openStory, pushToast, call]
   );
 
   const stopRinging = useCallback(() => {
@@ -506,9 +591,7 @@ export default function App() {
             <CompassIcon className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-extrabold tracking-tight text-white">
-              Trip Tracker
-            </p>
+            <p className="truncate text-sm font-extrabold tracking-tight text-white">Trip Tracker</p>
             <p className="truncate text-[11px] font-medium uppercase tracking-wider text-mono-500">
               Live group travel
             </p>
@@ -530,20 +613,14 @@ export default function App() {
               <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
               <p className="truncate text-xs text-mono-500">{user.email}</p>
             </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Log out"
-              aria-label="Log out"
-              className="btn btn-ghost btn-sm"
-            >
+            <button type="button" onClick={handleLogout} title="Log out" aria-label="Log out" className="btn btn-ghost btn-sm">
               <LogoutIcon className="h-4 w-4" />
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <GroupManager userId={currentUser.id} onSelectGroup={handleSelectGroup} />
+          <GroupManager userId={currentUser.id} onSelectGroup={handleSelectGroup} refreshSignal={groupsRefresh} />
         </div>
       </aside>
 
@@ -570,13 +647,7 @@ export default function App() {
             </p>
           </div>
           {activeGroup && (
-            <button
-              type="button"
-              onClick={copyInvite}
-              className="btn btn-ghost p-2"
-              title="Copy invite code"
-              aria-label="Copy invite code"
-            >
+            <button type="button" onClick={copyInvite} className="btn btn-ghost p-2" title="Copy invite code" aria-label="Copy invite code">
               {copied ? <CheckIcon className="h-5 w-5 text-accent" /> : <CopyIcon className="h-5 w-5" />}
             </button>
           )}
@@ -588,24 +659,18 @@ export default function App() {
               <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-mono-950">
                 <CompassIcon className="h-8 w-8" />
               </span>
-              <h2 className="mt-5 text-xl font-extrabold text-white">
-                Welcome to Trip Tracker
-              </h2>
+              <h2 className="mt-5 text-xl font-extrabold text-white">Welcome to Trip Tracker</h2>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-mono-400">
-                Select a trip from the trip list, create a new one, or join with an invite code to
-                start sharing locations, stories, expenses, and messages.
+                Select a trip from the trip list, create a new one, or scan an invite QR to start
+                sharing locations, stories, media, and calls.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2 text-xs font-semibold text-mono-300">
                 <span className="chip chip-slate">Live map</span>
-                <span className="chip chip-slate">Distance lines</span>
+                <span className="chip chip-slate">QR invites</span>
                 <span className="chip chip-slate">Stories</span>
-                <span className="chip chip-slate">Split expenses</span>
+                <span className="chip chip-slate">Voice calls</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="btn btn-primary mt-6 w-full md:hidden"
-              >
+              <button type="button" onClick={() => setSidebarOpen(true)} className="btn btn-primary mt-6 w-full md:hidden">
                 Choose a trip
               </button>
             </div>
@@ -624,9 +689,7 @@ export default function App() {
                 >
                   {copied ? <CheckIcon className="h-3.5 w-3.5 text-accent" /> : <CopyIcon className="h-3.5 w-3.5" />}
                   <span className="font-mono tracking-wider">{activeGroup.invite_code}</span>
-                  <span className="text-[10px] uppercase tracking-wide">
-                    {copied ? 'Copied' : 'Copy'}
-                  </span>
+                  <span className="text-[10px] uppercase tracking-wide">{copied ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
 
@@ -653,27 +716,34 @@ export default function App() {
             <div className="min-h-0 flex-1 bg-mono-950">
               <div key={tab} className="h-full animate-fade-in">
                 {tab === 'map' && (
-                  <LiveMap
-                    myLocation={myLocation}
-                    otherUsers={groupMembers}
-                    stories={storyMap}
-                    currentUser={currentUser}
-                    onAction={handleAction}
-                    onAddStory={() => setComposerOpen(true)}
-                  />
+                  <div className="flex h-full flex-col">
+                    <StoriesBar
+                      stories={storiesFeed}
+                      currentUser={currentUser}
+                      onOpen={openStory}
+                      onAdd={() => setComposerOpen(true)}
+                    />
+                    <div className="min-h-0 flex-1">
+                      <LiveMap
+                        myLocation={myLocation}
+                        otherUsers={groupMembers}
+                        stories={groupStoryMap}
+                        currentUser={currentUser}
+                        onAction={handleAction}
+                        onAddStory={() => setComposerOpen(true)}
+                      />
+                    </div>
+                  </div>
                 )}
-                {tab === 'chat' && (
-                  <GroupChat socket={socket} groupId={groupId} currentUser={currentUser} />
-                )}
-                {tab === 'expenses' && (
-                  <ExpensePanel groupId={groupId} currentUser={currentUser} />
-                )}
+                {tab === 'chat' && <GroupChat socket={socket} groupId={groupId} currentUser={currentUser} />}
+                {tab === 'expenses' && <ExpensePanel groupId={groupId} currentUser={currentUser} />}
                 {tab === 'members' && (
                   <MembersPanel
                     groupId={groupId}
                     currentUser={currentUser}
-                    stories={storyMap}
+                    stories={groupStoryMap}
                     onViewStory={openStory}
+                    socket={socket}
                   />
                 )}
               </div>
@@ -705,6 +775,7 @@ export default function App() {
 
       {/* ------------------------------------------------------- overlays */}
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <CallOverlay call={call} />
 
       {ringing && (
         <div className="fixed inset-x-0 bottom-20 z-[2900] flex justify-center px-3 md:bottom-6">
@@ -712,9 +783,7 @@ export default function App() {
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent/15 text-accent-300">
               <BellIcon className="h-5 w-5" />
             </span>
-            <span className="text-sm font-semibold text-white">
-              {ringing.fromName} is ringing you
-            </span>
+            <span className="text-sm font-semibold text-white">{ringing.fromName} is ringing you</span>
             <button type="button" onClick={stopRinging} className="btn btn-primary btn-sm">
               Stop
             </button>
@@ -737,6 +806,10 @@ export default function App() {
             setDmUser(actionUser);
             setActionUser(null);
           }}
+          onCall={() => {
+            call.startCall(actionUser, groupId);
+            setActionUser(null);
+          }}
           onVibrate={() => {
             handleAction('vibrate', actionUser);
             setActionUser(null);
@@ -752,7 +825,10 @@ export default function App() {
         <StoryViewer
           user={storyUser}
           stories={storyMap[storyUser.userId]?.items || []}
+          currentUser={currentUser}
           onClose={() => setStoryUser(null)}
+          onViewed={refreshStories}
+          onDelete={handleDeleteStory}
         />
       )}
 
@@ -760,8 +836,13 @@ export default function App() {
         <StoryComposer
           socket={socket}
           groupId={groupId}
+          members={memberList}
+          currentUser={currentUser}
           onClose={() => setComposerOpen(false)}
-          onPosted={() => pushToast({ icon: '◎', title: 'Story posted', body: 'Visible to your trip for 24h' })}
+          onPosted={() => {
+            refreshStories();
+            pushToast({ icon: '◎', title: 'Story posted' });
+          }}
         />
       )}
 
@@ -772,6 +853,7 @@ export default function App() {
           otherUser={dmUser}
           currentUser={currentUser}
           onClose={() => setDmUser(null)}
+          onCall={(member) => call.startCall(member, groupId)}
         />
       )}
     </div>

@@ -13,6 +13,7 @@ export default function MemberActionSheet({
   onClose,
   onViewStory,
   onMessage,
+  onCall,
   onVibrate,
   onRing,
 }) {
@@ -34,6 +35,15 @@ export default function MemberActionSheet({
       icon: '✉',
       disabled: isMe,
       onClick: onMessage,
+    },
+    {
+      key: 'call',
+      label: 'Call',
+      hint: 'Start a voice call',
+      icon: '☏',
+      disabled: isMe,
+      accent: true,
+      onClick: onCall,
     },
     {
       key: 'vibrate',

@@ -529,6 +529,9 @@ export default function LiveMap({
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-1.5">
+                  <PopupAction accent onClick={() => onAction?.('call', user)}>
+                    Call
+                  </PopupAction>
                   <PopupAction accent onClick={() => onAction?.('dm', user)}>
                     Message
                   </PopupAction>

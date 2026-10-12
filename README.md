@@ -7,8 +7,11 @@ black & white minimalist UI.
 - Realtime group map (Leaflet + MapTiler Hybrid basemap) with live member markers
 - **Location search** for any place, with a road-wise blue route and live distance + ETA (drive/walk/cycle)
 - Green distance polylines between you and selected group members (`geolib`)
-- Story rings on avatars/markers with a full-screen story viewer
-- Direct messages, plus remote **Vibrate** and **Ring** alerts over Socket.IO
+- **Group invites** — code, share link and QR code; scanning a QR auto-joins the trip
+- **Admin controls** — promote/demote admins and remove members
+- **Chat** — group and 1:1 direct messages with **images and voice notes**
+- **Voice calls** — peer-to-peer audio over WebRTC with Socket.IO signalling
+- **Stories** — photo/video/text with privacy tiers (trip group · everyone · selected people) and a **view-once** mode
 - Group chat, trip expenses with balances, and group management
 - Responsive layout: slide-over drawer + bottom navigation on mobile
 

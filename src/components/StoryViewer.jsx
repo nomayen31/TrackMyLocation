@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import api from '../api';
 import Avatar from './Avatar';
 
-const STORY_DURATION = 5000; // ms per story
+const IMAGE_MS = 5000;
+const TEXT_MS = 6000;
 
 function timeAgo(value) {
   const date = value ? new Date(value) : null;
@@ -10,23 +12,26 @@ function timeAgo(value) {
   if (seconds < 60) return 'just now';
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return `${hours}h ago`;
+  return `${Math.round(minutes / 60)}h ago`;
 }
 
 /**
- * StoryViewer — full-screen story player with auto-advance and segmented
- * progress bars. Renders one member's active stories in order.
+ * StoryViewer — full-screen player for one member's active stories.
+ * Supports image, video and text stories, marks views, and enforces view-once
+ * (a consumed one-time story is never shown again).
  */
-export default function StoryViewer({ user, stories, onClose }) {
+export default function StoryViewer({ user, stories, currentUser, onClose, onViewed, onDelete }) {
   const items = stories || [];
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [consumed, setConsumed] = useState(() => new Set());
   const timerRef = useRef(null);
 
   const current = items[index];
+  const isOwn = current?.userId === currentUser?.id;
+  const blocked = Boolean(current && current.viewOnce && !isOwn && consumed.has(current.id));
 
-  const next = React.useCallback(() => {
+  const next = useCallback(() => {
     setIndex((i) => {
       if (i + 1 < items.length) return i + 1;
       onClose?.();
@@ -36,24 +41,58 @@ export default function StoryViewer({ user, stories, onClose }) {
 
   const prev = () => setIndex((i) => Math.max(0, i - 1));
 
-  // Reset the progress bar whenever the visible story changes.
+  // Reset progress when the visible story changes.
   useEffect(() => {
     setProgress(0);
   }, [index]);
 
-  // Drive the progress bar + auto-advance.
+  // Record the view + lock view-once stories once the viewer leaves them.
   useEffect(() => {
     if (!current) return undefined;
+    const story = current;
+    const own = story.userId === currentUser?.id;
+
+    if (!own && !story.viewed) {
+      api
+        .post(`/api/stories/${story.id}/view`)
+        .then(() => onViewed?.(story.id))
+        .catch((err) => {
+          if (err.response?.status === 410) {
+            setConsumed((s) => new Set(s).add(story.id));
+          }
+        });
+    }
+
+    return () => {
+      if (story.viewOnce && !own) {
+        setConsumed((s) => new Set(s).add(story.id));
+      }
+    };
+  }, [current, currentUser?.id, onViewed]);
+
+  // Timed advance for image / text stories.
+  useEffect(() => {
+    if (!current || blocked) return undefined;
+    if (current.mediaType === 'video') return undefined; // advances on "ended"
+
+    const duration = current.mediaType === 'text' ? TEXT_MS : IMAGE_MS;
     const started = Date.now();
     timerRef.current = setInterval(() => {
-      const pct = Math.min(100, ((Date.now() - started) / STORY_DURATION) * 100);
+      const pct = Math.min(100, ((Date.now() - started) / duration) * 100);
       setProgress(pct);
       if (pct >= 100) next();
     }, 60);
     return () => clearInterval(timerRef.current);
-  }, [current, next]);
+  }, [current, blocked, next]);
 
-  // Keyboard: Escape closes, arrows navigate.
+  // Consumed one-time stories flash a notice, then advance.
+  useEffect(() => {
+    if (!blocked) return undefined;
+    const t = setTimeout(next, 1400);
+    return () => clearTimeout(t);
+  }, [blocked, next]);
+
+  // Keyboard controls.
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') onClose?.();
@@ -65,6 +104,55 @@ export default function StoryViewer({ user, stories, onClose }) {
   }, [next, onClose]);
 
   if (!user || !current) return null;
+
+  const media = (() => {
+    if (blocked) {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-mono-950 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full border border-mono-700 text-mono-300">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className="h-6 w-6">
+              <path d="M3 3l18 18" />
+              <path d="M10.6 5.1A9 9 0 0 1 12 5c5 0 9 4.5 9 7 0 .9-.4 2-1.2 3.1M6.3 6.6C4.3 8 3 10 3 12c0 2.5 4 7 9 7 1.3 0 2.5-.3 3.6-.8" />
+            </svg>
+          </span>
+          <p className="text-sm font-semibold text-white">Already viewed</p>
+          <p className="text-xs text-mono-400">This story could only be opened once.</p>
+        </div>
+      );
+    }
+    if (current.mediaType === 'video') {
+      return (
+        <video
+          src={current.media}
+          className="h-full w-full object-contain"
+          autoPlay
+          playsInline
+          controls={false}
+          onEnded={next}
+          onTimeUpdate={(e) => {
+            const el = e.currentTarget;
+            if (el.duration) setProgress((el.currentTime / el.duration) * 100);
+          }}
+        />
+      );
+    }
+    if (current.mediaType === 'text') {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-mono-900 to-mono-950 px-8">
+          <p className="max-h-full overflow-y-auto text-center text-2xl font-bold leading-snug text-white">
+            {current.text}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <img
+        src={current.media}
+        alt={current.caption || `${user.name}'s story`}
+        className="h-full w-full object-contain"
+      />
+    );
+  })();
 
   return (
     <div className="fixed inset-0 z-[2600] flex items-center justify-center bg-black/95 backdrop-blur">
@@ -85,9 +173,41 @@ export default function StoryViewer({ user, stories, onClose }) {
         <div className="flex items-center gap-3 px-4 py-3">
           <Avatar name={user.name} src={user.avatarUrl} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-white">{user.name}</p>
-            <p className="text-[11px] text-mono-400">{timeAgo(current.createdAt)}</p>
+            <p className="flex items-center gap-2 truncate text-sm font-bold text-white">
+              {user.name}
+              {current.viewOnce && (
+                <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-300">
+                  View once
+                </span>
+              )}
+              {current.privacy === 'global' && (
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-mono-200">
+                  Everyone
+                </span>
+              )}
+              {current.privacy === 'selected' && (
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-mono-200">
+                  Selected
+                </span>
+              )}
+            </p>
+            <p className="text-[11px] text-mono-400">
+              {timeAgo(current.createdAt)}
+              {current.groupName ? ` · ${current.groupName}` : ''}
+            </p>
           </div>
+          {isOwn && onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(current.id)}
+              aria-label="Delete story"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-mono-300 hover:bg-white/10 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" className="h-5 w-5">
+                <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+              </svg>
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -103,25 +223,11 @@ export default function StoryViewer({ user, stories, onClose }) {
         {/* Media + tap zones */}
         <div className="relative flex-1 overflow-hidden px-2 pb-6">
           <div className="relative h-full w-full overflow-hidden rounded-2xl border border-mono-800 bg-mono-900">
-            <img
-              src={current.media}
-              alt={current.caption || `${user.name}'s story`}
-              className="h-full w-full object-contain"
-            />
-            <button
-              type="button"
-              aria-label="Previous story"
-              onClick={prev}
-              className="absolute inset-y-0 left-0 w-1/3"
-            />
-            <button
-              type="button"
-              aria-label="Next story"
-              onClick={next}
-              className="absolute inset-y-0 right-0 w-1/3"
-            />
-            {current.caption && (
-              <p className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-10 text-sm font-medium text-white">
+            {media}
+            <button type="button" aria-label="Previous story" onClick={prev} className="absolute inset-y-0 left-0 w-1/3" />
+            <button type="button" aria-label="Next story" onClick={next} className="absolute inset-y-0 right-0 w-1/3" />
+            {current.caption && !blocked && (
+              <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-4 pt-10 text-sm font-medium text-white">
                 {current.caption}
               </p>
             )}

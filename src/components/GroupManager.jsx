@@ -44,7 +44,7 @@ const inputClass = 'input';
 /* -------------------------------------------------------------------------
  * GroupManager — lists the user's groups and offers Create / Join modals.
  * ---------------------------------------------------------------------- */
-export default function GroupManager({ userId, onSelectGroup }) {
+export default function GroupManager({ userId, onSelectGroup, refreshSignal = 0 }) {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,7 +75,10 @@ export default function GroupManager({ userId, onSelectGroup }) {
   useEffect(() => {
     if (!userId) return;
     fetchGroups();
-  }, [fetchGroups]);
+    // `refreshSignal` lets the app force a refetch (e.g. after auto-joining
+    // via a scanned invite link).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchGroups, refreshSignal]);
 
   // Auto-select the first group once so the dashboard isn't empty on load.
   const autoSelected = useRef(false);
