@@ -1,15 +1,40 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import api from '../api';
 
 const labelClass = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mono-400';
+const MAX_BYTES = 2 * 1024 * 1024;
 
 export default function AuthForm({ onAuthed }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+
+  const pickPhoto = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file for your photo.');
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setError('That photo is larger than 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setError('');
+      setImage(String(reader.result));
+      setPreview(String(reader.result));
+    };
+    reader.readAsDataURL(file);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -17,7 +42,10 @@ export default function AuthForm({ onAuthed }) {
     setBusy(true);
     try {
       const endpoint = mode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-      const payload = mode === 'signup' ? { name, email, password } : { email, password };
+      const payload =
+        mode === 'signup'
+          ? { name, email, password, phone, ...(image ? { image } : {}) }
+          : { email, password };
 
       // withCredentials: true sends/receives the Better Auth session cookie.
       const res = await api.post(endpoint, payload);
@@ -70,20 +98,67 @@ export default function AuthForm({ onAuthed }) {
 
           <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
             {mode === 'signup' && (
-              <div>
-                <label className={labelClass} htmlFor="auth-name">
-                  Name
-                </label>
-                <input
-                  id="auth-name"
-                  type="text"
-                  placeholder="Name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  className="input"
-                />
-              </div>
+              <>
+                {/* Profile photo */}
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    className="group relative rounded-full"
+                    aria-label="Upload profile photo"
+                  >
+                    <span className="story-ring-ui absolute -inset-1 rounded-full opacity-80" aria-hidden="true" />
+                    <span className="relative block h-20 w-20 overflow-hidden rounded-full border-2 border-mono-950 bg-mono-900">
+                      {preview ? (
+                        <img src={preview} alt="Preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-mono-400">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className="h-7 w-7">
+                            <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" />
+                            <circle cx="12" cy="13" r="3" />
+                          </svg>
+                        </span>
+                      )}
+                    </span>
+                    <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-neon-tri text-white shadow-glowViolet">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </span>
+                  </button>
+                  <span className="text-[11px] text-mono-400">Add a profile photo (optional)</span>
+                  <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="auth-name">
+                    Name
+                  </label>
+                  <input
+                    id="auth-name"
+                    type="text"
+                    placeholder="Name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="input"
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass} htmlFor="auth-phone">
+                    Phone <span className="font-normal normal-case text-mono-500">(optional)</span>
+                  </label>
+                  <input
+                    id="auth-phone"
+                    type="tel"
+                    placeholder="+1 555 0100"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="input"
+                  />
+                </div>
+              </>
             )}
 
             <div>

@@ -15,7 +15,7 @@ cards, violet → cyan → emerald accents).
 - **Group invites** — code, share link and QR code; scanning a QR auto-joins the trip
 - **Admin controls** — promote/demote admins and remove members
 - **Chat** — group and 1:1 direct messages with **images and voice notes**
-- **Voice calls** — peer-to-peer audio over WebRTC with Socket.IO signalling
+- **Voice calls** — free peer-to-peer 1-to-1 audio over WebRTC with Socket.IO signalling and STUN
 - **Stories** — photo/video/text with privacy tiers (trip group · everyone · selected people) and a **view-once** mode
 - Group chat, trip expenses with balances, and group management
 - Responsive layout: slide-over drawer + bottom navigation on mobile

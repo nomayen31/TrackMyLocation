@@ -103,6 +103,7 @@ export default function ExpeditionMap({
   // Safety features
   safeZone = null,
   isAdmin = false,
+  memberProfiles = {},
   onSetSafeZone,
   onDisableSafeZone,
   broadcasts = [],
@@ -182,6 +183,7 @@ export default function ExpeditionMap({
           onAction={onAction}
           onAddStory={onAddStory}
           safeZone={safeZone}
+          memberProfiles={memberProfiles}
         />
 
         {/* Weather widget (desktop — the stats bar shows a chip on phones) */}

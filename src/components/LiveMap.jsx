@@ -215,6 +215,7 @@ export default function LiveMap({
   onAction,
   onAddStory,
   safeZone = null,
+  memberProfiles = {},
 }) {
   const others = useMemo(() => Object.values(otherUsers || {}), [otherUsers]);
 
@@ -518,69 +519,111 @@ export default function LiveMap({
         </Marker>
 
         {/* Other group members */}
-        {measured.map(({ user, meters, hasStory }) => (
-          <Marker
-            key={user.userId}
-            position={[user.lat, user.lng]}
-            icon={createAvatarIcon({ ...user, hasStory })}
-          >
-            <Popup>
-              <div className="text-left">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`h-11 w-11 overflow-hidden rounded-full border ${
-                      hasStory ? 'border-accent' : 'border-mono-700'
-                    }`}
-                  >
-                    {user.avatarUrl ? (
-                      <img
-                        src={user.avatarUrl}
-                        alt={user.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center bg-mono-800 text-sm font-bold text-mono-100">
-                        {user.name?.[0]?.toUpperCase() || '?'}
+        {measured.map(({ user, meters, hasStory }) => {
+          const profile = memberProfiles[user.userId] || {};
+          const dText = formatDistance(meters);
+          return (
+            <Marker
+              key={user.userId}
+              position={[user.lat, user.lng]}
+              icon={createAvatarIcon({ ...user, hasStory })}
+            >
+              <Popup>
+                <div className="text-left">
+                  {/* Identity */}
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 ${
+                        hasStory ? 'border-neon' : 'border-mono-700'
+                      }`}
+                    >
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={user.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center bg-mono-800 text-sm font-bold text-mono-100">
+                          {user.name?.[0]?.toUpperCase() || '?'}
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-bold text-white">
+                        {user.name}
                       </span>
-                    )}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-bold text-white">
-                      {user.name}
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-semibold text-accent-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                        {dText ? `${dText} away` : 'Locating…'}
+                      </span>
+                      {hasStory && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAction?.('story', user);
+                          }}
+                          className="mt-1 rounded-full border border-neon/40 bg-neon/15 px-2 py-0.5 text-[10px] font-bold text-neon-300"
+                        >
+                          ● View story
+                        </button>
+                      )}
                     </span>
-                    <span className="block text-[11px] font-medium text-mono-400">
-                      {formatDistance(meters) ? `${formatDistance(meters)} away` : 'Locating…'}
-                    </span>
-                    {hasStory && (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onAction?.('story', user);
-                        }}
-                        className="mt-0.5 text-[11px] font-bold text-accent-300"
-                      >
-                        View story
-                      </button>
-                    )}
-                  </span>
-                </div>
+                  </div>
 
-                <div className="mt-3 grid grid-cols-2 gap-1.5">
-                  <PopupAction accent onClick={() => onAction?.('call', user)}>
-                    Call
-                  </PopupAction>
-                  <PopupAction accent onClick={() => onAction?.('dm', user)}>
-                    Message
-                  </PopupAction>
-                  <PopupAction onClick={() => onAction?.('vibrate', user)}>Vibrate</PopupAction>
-                  <PopupAction onClick={() => onAction?.('ring', user)}>Ring</PopupAction>
-                  <PopupAction onClick={() => onAction?.('sheet', user)}>More</PopupAction>
+                  {/* Contact details */}
+                  {(profile.phone || profile.social) && (
+                    <div className="mt-2.5 flex flex-col gap-1">
+                      {profile.phone && (
+                        <a
+                          href={`tel:${profile.phone}`}
+                          className="flex items-center gap-2 rounded-lg border border-mono-800/80 bg-mono-900/70 px-2.5 py-1.5 text-[11px] font-medium text-mono-200 hover:border-electric/50 hover:text-white"
+                        >
+                          <span className="text-electric-400">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-3.5 w-3.5">
+                              <path d="M5 4h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+                            </svg>
+                          </span>
+                          <span className="truncate">{profile.phone}</span>
+                        </a>
+                      )}
+                      {profile.social && (
+                        <span className="flex items-center gap-2 rounded-lg border border-mono-800/80 bg-mono-900/70 px-2.5 py-1.5 text-[11px] font-medium text-mono-200">
+                          <span className="text-neon-300">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-3.5 w-3.5">
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+                            </svg>
+                          </span>
+                          <span className="truncate">{profile.social}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="mt-3 grid grid-cols-2 gap-1.5">
+                    <PopupAction accent onClick={() => onAction?.('call', user)}>
+                      Call
+                    </PopupAction>
+                    <PopupAction accent onClick={() => onAction?.('dm', user)}>
+                      Message
+                    </PopupAction>
+                    <PopupAction onClick={() => onAction?.('vibrate', user)}>Vibrate</PopupAction>
+                    <PopupAction onClick={() => onAction?.('ring', user)}>Ring</PopupAction>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onAction?.('sheet', user);
+                    }}
+                    className="mt-1.5 w-full rounded-lg border border-mono-700 bg-mono-800/70 py-2 text-[11px] font-semibold text-mono-100 transition hover:border-neon/50 hover:text-white"
+                  >
+                    More options
+                  </button>
                 </div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
 
       {/* Search any location + live distance from you */}

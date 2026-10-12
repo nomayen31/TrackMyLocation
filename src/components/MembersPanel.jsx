@@ -3,7 +3,7 @@ import api from '../api';
 import Avatar from './Avatar';
 import InviteCard from './InviteCard';
 
-export default function MembersPanel({ groupId, currentUser, stories = {}, onViewStory, socket }) {
+export default function MembersPanel({ groupId, currentUser, stories = {}, onViewStory, onEditProfile, socket }) {
   const [group, setGroup] = useState(null);
   const [members, setMembers] = useState([]);
   const [email, setEmail] = useState('');
@@ -139,9 +139,23 @@ export default function MembersPanel({ groupId, currentUser, stories = {}, onVie
 
         {/* Members list */}
         <div className="card card-pad animate-fade-up">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h3 className="section-title">Members</h3>
-            <span className="chip chip-brand">{members.length}</span>
+            <div className="flex items-center gap-2">
+              <span className="chip chip-brand">{members.length}</span>
+              <button
+                type="button"
+                onClick={() => onEditProfile?.()}
+                className="btn btn-secondary btn-sm"
+                title="Edit your name, photo, phone and social"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+                  <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+                  <path d="M14.5 6.5l3 3" />
+                </svg>
+                Edit my profile
+              </button>
+            </div>
           </div>
           <ul className="mt-3 flex flex-col divide-y divide-mono-800">
             {members.map((m) => {
@@ -169,6 +183,27 @@ export default function MembersPanel({ groupId, currentUser, stories = {}, onVie
                       )}
                     </p>
                     <p className="truncate text-xs text-mono-500">{m.email}</p>
+                      {(m.phone || m.social) && (
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-mono-400">
+                          {m.phone && (
+                            <a href={`tel:${m.phone}`} className="inline-flex items-center gap-1 hover:text-electric-300">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-3 w-3">
+                                <path d="M5 4h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+                              </svg>
+                              {m.phone}
+                            </a>
+                          )}
+                          {m.social && (
+                            <span className="inline-flex items-center gap-1">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-3 w-3">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+                              </svg>
+                              {m.social}
+                            </span>
+                          )}
+                        </p>
+                      )}
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -184,6 +219,17 @@ export default function MembersPanel({ groupId, currentUser, stories = {}, onVie
                     <span className={`chip ${m.role === 'admin' ? 'chip-amber' : 'chip-slate'}`}>
                       {m.role}
                     </span>
+
+                    {isSelf && (
+                      <button
+                        type="button"
+                        onClick={() => onEditProfile?.()}
+                        className="btn btn-secondary btn-sm"
+                        title="Edit your profile"
+                      >
+                        Edit
+                      </button>
+                    )}
 
                     {canManage && (
                       <>

@@ -10,6 +10,8 @@ export default function MemberActionSheet({
   distanceText,
   hasStory,
   isMe = false,
+  phone,
+  social,
   onClose,
   onViewStory,
   onMessage,
@@ -102,6 +104,35 @@ export default function MemberActionSheet({
             </svg>
           </button>
         </div>
+
+        {!isMe && (phone || social) && (
+          <div className="mt-4 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {phone && (
+              <a
+                href={`tel:${phone}`}
+                className="flex items-center gap-2 rounded-xl border border-mono-800/80 bg-mono-900/60 px-3 py-2 text-xs font-medium text-mono-200 hover:border-electric/50 hover:text-white"
+              >
+                <span className="text-electric-400">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-4 w-4">
+                    <path d="M5 4h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1 truncate">{phone}</span>
+              </a>
+            )}
+            {social && (
+              <span className="flex items-center gap-2 rounded-xl border border-mono-800/80 bg-mono-900/60 px-3 py-2 text-xs font-medium text-mono-200">
+                <span className="text-neon-300">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-4 w-4">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1 truncate">{social}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           {actions.map((action) => (

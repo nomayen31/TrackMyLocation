@@ -19,6 +19,7 @@ import StoryViewer from './components/StoryViewer';
 import StoryComposer from './components/StoryComposer';
 import StoriesBar from './components/StoriesBar';
 import DirectMessages from './components/DirectMessages';
+import ProfileEditor from './components/ProfileEditor';
 import CallOverlay from './components/CallOverlay';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
 
@@ -165,6 +166,7 @@ export default function App() {
   const [storyUser, setStoryUser] = useState(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [dmUser, setDmUser] = useState(null);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
   // Safety features: safe zone, boundary breaches, admin broadcasts.
   const [safeZone, setSafeZone] = useState(null);
@@ -175,7 +177,14 @@ export default function App() {
   const currentUser = useMemo(
     () =>
       user
-        ? { id: user.id, name: user.name, avatarUrl: user.image || user.avatarUrl }
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            avatarUrl: user.image || user.avatarUrl,
+            phone: user.phone || '',
+            social: user.social || '',
+          }
         : null,
     [user]
   );
@@ -220,7 +229,8 @@ export default function App() {
   /* --------------------------------------------------- restore session */
   useEffect(() => {
     api
-      .get('/api/auth/me')
+      .get('/api/profile/me')
+      .catch(() => api.get('/api/auth/me')) // fall back if profile route is unavailable
       .then((res) => {
         setUser(res.data.user);
         localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
@@ -378,6 +388,22 @@ export default function App() {
       });
     };
 
+    // --- Member profiles (photo / name / phone / social changed) ---
+    const onProfileUpdated = (profile) => {
+      setMemberList((prev) => prev.map((m) => (m.id === profile.id ? { ...m, ...profile } : m)));
+      setGroupMembers((prev) => {
+        if (!prev[profile.id]) return prev;
+        return {
+          ...prev,
+          [profile.id]: {
+            ...prev[profile.id],
+            name: profile.name || prev[profile.id].name,
+            avatarUrl: profile.avatarUrl || prev[profile.id].avatarUrl,
+          },
+        };
+      });
+    };
+
     socket.on('vibrate', onVibrate);
     socket.on('ring', onRing);
     socket.on('ring-stopped', onRingStopped);
@@ -391,6 +417,7 @@ export default function App() {
     socket.on('boundary-breach-alert', onBreach);
     socket.on('boundary-restored', onRestored);
     socket.on('admin-broadcast-message', onBroadcast);
+    socket.on('member-profile-updated', onProfileUpdated);
     socket.on('story-updated', refreshStories);
     socket.on('story-deleted', refreshStories);
 
@@ -408,6 +435,7 @@ export default function App() {
       socket.off('boundary-breach-alert', onBreach);
       socket.off('boundary-restored', onRestored);
       socket.off('admin-broadcast-message', onBroadcast);
+      socket.off('member-profile-updated', onProfileUpdated);
       socket.off('story-updated', refreshStories);
       socket.off('story-deleted', refreshStories);
     };
@@ -742,6 +770,24 @@ export default function App() {
     [memberList, currentUser?.id]
   );
 
+  /* --------------------------- member profiles (phone / social) for the map */
+  const memberProfiles = useMemo(() => {
+    const map = {};
+    for (const m of memberList) {
+      map[m.id] = { name: m.name, phone: m.phone || '', social: m.social || '' };
+    }
+    return map;
+  }, [memberList]);
+
+  const handleProfileSaved = useCallback(
+    (updated) => {
+      setUser((u) => (u ? { ...u, ...updated } : u));
+      setMemberList((prev) => prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)));
+      pushToast({ icon: '◎', title: 'Profile updated', body: 'Your photo and details are live' });
+    },
+    [pushToast]
+  );
+
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-mono-950">
@@ -831,6 +877,18 @@ export default function App() {
               <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
               <p className="truncate text-xs text-mono-500">{user.email}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setProfileEditorOpen(true)}
+              title="Edit profile"
+              aria-label="Edit profile"
+              className="btn btn-ghost btn-sm"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+                <path d="M14.5 6.5l3 3" />
+              </svg>
+            </button>
             <button type="button" onClick={handleLogout} title="Log out" aria-label="Log out" className="btn btn-ghost btn-sm">
               <LogoutIcon className="h-4 w-4" />
             </button>
@@ -959,6 +1017,7 @@ export default function App() {
                         onAddStory={() => setComposerOpen(true)}
                         safeZone={safeZone}
                         isAdmin={isAdmin}
+                        memberProfiles={memberProfiles}
                         onSetSafeZone={setSafeZoneRadius}
                         onDisableSafeZone={disableSafeZone}
                         broadcasts={broadcasts}
@@ -971,13 +1030,16 @@ export default function App() {
                   </div>
                 )}
                 {tab === 'chat' && <GroupChat socket={socket} groupId={groupId} currentUser={currentUser} />}
-                {tab === 'expenses' && <ExpensePanel groupId={groupId} currentUser={currentUser} />}
+                {tab === 'expenses' && (
+                  <ExpensePanel groupId={groupId} currentUser={currentUser} members={memberList} socket={socket} />
+                )}
                 {tab === 'members' && (
                   <MembersPanel
                     groupId={groupId}
                     currentUser={currentUser}
                     stories={groupStoryMap}
                     onViewStory={openStory}
+                    onEditProfile={() => setProfileEditorOpen(true)}
                     socket={socket}
                   />
                 )}
@@ -1032,6 +1094,8 @@ export default function App() {
           distanceText={sheetDistance}
           hasStory={Boolean(storyMap[actionUser.userId])}
           isMe={actionUser.userId === currentUser.id}
+          phone={memberProfiles[actionUser.userId]?.phone}
+          social={memberProfiles[actionUser.userId]?.social}
           onClose={() => setActionUser(null)}
           onViewStory={() => {
             openStory(actionUser);
@@ -1089,6 +1153,14 @@ export default function App() {
           currentUser={currentUser}
           onClose={() => setDmUser(null)}
           onCall={(member) => call.startCall(member, groupId)}
+        />
+      )}
+
+      {profileEditorOpen && (
+        <ProfileEditor
+          user={currentUser}
+          onClose={() => setProfileEditorOpen(false)}
+          onSaved={handleProfileSaved}
         />
       )}
 

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * useCall — 1:1 voice calls over WebRTC with Socket.IO signalling.
+ * useCall — free 1-to-1 WebRTC voice calls with Socket.IO signalling.
  *
- * Server relays signalling only (see Backend/src/sockets/callSocket.js); audio
- * is peer-to-peer. STUN is provided by Google's public servers. For restrictive
- * NATs, set VITE_TURN_URL / VITE_TURN_USER / VITE_TURN_CREDENTIAL and a TURN
- * server is added automatically.
+ * Signalling events (see Backend/src/sockets/callSocket.js):
+ *   emit  call-user | accept-call | reject-call | ice-candidate | hang-up
+ *   on    incoming-call | call-accepted | call-rejected | ice-candidate | call-ended
+ *
+ * Audio is peer-to-peer via RTCPeerConnection. STUN is Google's free public
+ * server; add a TURN server (VITE_TURN_*) for restrictive mobile networks.
  */
 
 const ICE_SERVERS = [
@@ -22,6 +24,8 @@ if (turnUrl) {
     credential: import.meta.env.VITE_TURN_CREDENTIAL,
   });
 }
+
+const RING_TIMEOUT_MS = 45_000;
 
 const newCallId = () => {
   try {
@@ -47,29 +51,35 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
   const peerId = useRef(null);
   const isCaller = useRef(false);
   const pendingIce = useRef([]);
+  const pendingOffer = useRef(null);
   const timer = useRef(null);
+  const ringTimer = useRef(null);
   const stateRef = useRef('idle');
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
-  const stopTimer = () => {
+  const clearTimers = () => {
     if (timer.current) {
       clearInterval(timer.current);
       timer.current = null;
     }
+    if (ringTimer.current) {
+      clearTimeout(ringTimer.current);
+      ringTimer.current = null;
+    }
   };
 
   const startTimer = () => {
-    stopTimer();
+    if (timer.current) clearInterval(timer.current);
     setSeconds(0);
     timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
   };
 
-  /** Tear down all call state; optionally park in 'ended' for the UI. */
+  /** Tear everything down; optionally park in 'ended' so the UI can fade out. */
   const teardown = useCallback((nextState = 'idle') => {
-    stopTimer();
+    clearTimers();
     if (pc.current) {
       try {
         pc.current.onicecandidate = null;
@@ -82,13 +92,14 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
     }
     if (localStream.current) {
       try {
-        localStream.current.getTracks().forEach((track) => track.stop());
+        localStream.current.getTracks().forEach((t) => t.stop());
       } catch {
         /* already stopped */
       }
       localStream.current = null;
     }
     pendingIce.current = [];
+    pendingOffer.current = null;
     callId.current = null;
     peerId.current = null;
     isCaller.current = false;
@@ -101,6 +112,7 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
   const getMedia = useCallback(async () => {
     if (localStream.current) return localStream.current;
+    // Free browser audio capture — no plugins, no cost.
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     localStream.current = stream;
     return stream;
@@ -115,20 +127,30 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
     conn.onicecandidate = (event) => {
       if (event.candidate && peerId.current && callId.current) {
-        socket.emit('call:ice', {
+        socket.emit('ice-candidate', {
           toUserId: peerId.current,
           callId: callId.current,
           candidate: event.candidate,
         });
       }
     };
+
+    // Remote audio arrives here -> played by the overlay's hidden <audio>.
     conn.ontrack = (event) => setRemoteStream(event.streams[0] || null);
+    conn.onconnectionstatechange = () => {
+      if (stateRef.current !== 'active') return;
+      if (['failed', 'closed'].includes(conn.connectionState)) {
+        onNotice?.('Call disconnected');
+        teardown('ended');
+        setTimeout(() => setState((s) => (s === 'ended' ? 'idle' : s)), 1200);
+      }
+    };
 
     pc.current = conn;
     return conn;
-  }, [getMedia, socket]);
+  }, [getMedia, socket, onNotice, teardown]);
 
-  /** Apply ICE candidates that arrived before the remote description. */
+  /** ICE candidates that arrive before the remote description is applied. */
   const flushIce = useCallback(async (conn) => {
     const queued = pendingIce.current;
     pendingIce.current = [];
@@ -136,7 +158,7 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
       try {
         await conn.addIceCandidate(new RTCIceCandidate(candidate));
       } catch {
-        /* ignore */
+        /* ignore malformed candidates */
       }
     }
   }, []);
@@ -149,8 +171,10 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
         onNotice?.('You are already in a call');
         return;
       }
+
+      let stream;
       try {
-        await getMedia();
+        stream = await getMedia();
       } catch {
         setError('Microphone permission denied.');
         onNotice?.('Microphone permission denied.');
@@ -164,33 +188,65 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
       setError('');
       setState('calling');
 
-      socket.emit('call:invite', {
-        toUserId: member.userId,
-        groupId: groupId ?? null,
-        callId: callId.current,
-        callType: 'audio',
-      });
+      try {
+        const conn = await createPc();
+        const offer = await conn.createOffer({ offerToReceiveAudio: true });
+        await conn.setLocalDescription(offer);
+
+        socket.emit('call-user', {
+          toUserId: member.userId,
+          groupId: groupId ?? null,
+          callId: callId.current,
+          callType: 'audio',
+          offer: conn.localDescription,
+        });
+
+        // Give up if nobody picks up.
+        ringTimer.current = setTimeout(() => {
+          if (stateRef.current === 'calling') {
+            socket.emit('hang-up', { toUserId: peerId.current, callId: callId.current, reason: 'no-answer' });
+            onNotice?.('No answer');
+            teardown('ended');
+            setTimeout(() => setState((s) => (s === 'ended' ? 'idle' : s)), 1200);
+          }
+        }, RING_TIMEOUT_MS);
+      } catch {
+        setError('Could not start the call.');
+        teardown('ended');
+      }
+
+      void stream;
     },
-    [socket, getMedia, onNotice]
+    [socket, getMedia, createPc, onNotice, teardown]
   );
 
   const accept = useCallback(async () => {
-    if (!peerId.current || !callId.current) return;
+    if (!peerId.current || !callId.current || !pendingOffer.current) return;
     try {
-      await createPc();
+      const conn = await createPc();
+      await conn.setRemoteDescription(new RTCSessionDescription(pendingOffer.current));
+      const answer = await conn.createAnswer();
+      await conn.setLocalDescription(answer);
+      await flushIce(conn);
+
+      socket.emit('accept-call', {
+        toUserId: peerId.current,
+        callId: callId.current,
+        answer: conn.localDescription,
+      });
+
+      setState('active');
+      startTimer();
     } catch {
-      setError('Microphone permission denied.');
+      setError('Could not answer the call.');
+      socket.emit('reject-call', { toUserId: peerId.current, callId: callId.current, reason: 'error' });
       teardown();
-      return;
     }
-    socket.emit('call:accept', { toUserId: peerId.current, callId: callId.current });
-    setState('active');
-    startTimer();
-  }, [createPc, socket, teardown]);
+  }, [createPc, flushIce, socket, teardown]);
 
   const reject = useCallback(() => {
     if (peerId.current && callId.current) {
-      socket.emit('call:reject', {
+      socket.emit('reject-call', {
         toUserId: peerId.current,
         callId: callId.current,
         reason: 'declined',
@@ -201,7 +257,7 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
   const hangup = useCallback(() => {
     if (peerId.current && callId.current) {
-      socket.emit('call:end', {
+      socket.emit('hang-up', {
         toUserId: peerId.current,
         callId: callId.current,
         reason: 'ended',
@@ -225,58 +281,31 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
   useEffect(() => {
     if (!socket) return undefined;
 
-    const onIncoming = ({ fromUserId, fromName, fromAvatar, callId: cid }) => {
+    const onIncoming = ({ fromUserId, fromName, fromAvatar, callId: cid, offer }) => {
       if (stateRef.current !== 'idle') {
-        socket.emit('call:reject', { toUserId: fromUserId, callId: cid, reason: 'busy' });
+        socket.emit('reject-call', { toUserId: fromUserId, callId: cid, reason: 'busy' });
         return;
       }
       callId.current = cid;
       peerId.current = fromUserId;
       isCaller.current = false;
+      pendingOffer.current = offer || null;
       setPeer({ userId: fromUserId, name: fromName, avatarUrl: fromAvatar });
       setState('incoming');
     };
 
-    const onAccepted = async () => {
-      if (!isCaller.current) return;
+    const onAccepted = async ({ answer } = {}) => {
+      const conn = pc.current;
+      if (!conn || !answer) return;
       try {
-        const conn = await createPc();
-        const offer = await conn.createOffer();
-        await conn.setLocalDescription(offer);
-        socket.emit('call:offer', {
-          toUserId: peerId.current,
-          callId: callId.current,
-          sdp: conn.localDescription,
-        });
+        await conn.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushIce(conn);
         setState('active');
         startTimer();
       } catch {
-        setError('Could not start the call.');
+        onNotice?.('Call failed to connect');
         teardown('ended');
       }
-    };
-
-    const onOffer = async ({ sdp } = {}) => {
-      if (!sdp) return;
-      const conn = await createPc();
-      await conn.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await conn.createAnswer();
-      await conn.setLocalDescription(answer);
-      socket.emit('call:answer', {
-        toUserId: peerId.current,
-        callId: callId.current,
-        sdp: conn.localDescription,
-      });
-      await flushIce(conn);
-      setState('active');
-      startTimer();
-    };
-
-    const onAnswer = async ({ sdp } = {}) => {
-      const conn = pc.current;
-      if (!conn || !sdp) return;
-      await conn.setRemoteDescription(new RTCSessionDescription(sdp));
-      await flushIce(conn);
     };
 
     const onIce = async ({ candidate } = {}) => {
@@ -301,27 +330,29 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
     const onRejected = ({ reason } = {}) =>
       finish(reason === 'busy' ? 'User is on another call' : 'Call declined');
-
     const onEnded = () => finish('Call ended');
 
-    socket.on('call:incoming', onIncoming);
-    socket.on('call:accepted', onAccepted);
-    socket.on('call:offer', onOffer);
-    socket.on('call:answer', onAnswer);
+    socket.on('incoming-call', onIncoming);
+    socket.on('call-accepted', onAccepted);
+    socket.on('call-rejected', onRejected);
+    socket.on('ice-candidate', onIce);
+    socket.on('call-ended', onEnded);
+    // Legacy events (older clients)
+    socket.on('call:answer', onAccepted);
     socket.on('call:ice', onIce);
-    socket.on('call:rejected', onRejected);
     socket.on('call:ended', onEnded);
 
     return () => {
-      socket.off('call:incoming', onIncoming);
-      socket.off('call:accepted', onAccepted);
-      socket.off('call:offer', onOffer);
-      socket.off('call:answer', onAnswer);
+      socket.off('incoming-call', onIncoming);
+      socket.off('call-accepted', onAccepted);
+      socket.off('call-rejected', onRejected);
+      socket.off('ice-candidate', onIce);
+      socket.off('call-ended', onEnded);
+      socket.off('call:answer', onAccepted);
       socket.off('call:ice', onIce);
-      socket.off('call:rejected', onRejected);
       socket.off('call:ended', onEnded);
     };
-  }, [socket, createPc, flushIce, teardown, onNotice]);
+  }, [socket, flushIce, teardown, onNotice]);
 
   return {
     state,
