@@ -119,7 +119,7 @@ export default function GroupChat({ socket, groupId, currentUser }) {
                   <div
                     className={`max-w-[78%] rounded-2xl px-3 py-2.5 text-sm shadow-sm ${
                       isMe
-                        ? 'rounded-br-md bg-white text-mono-950'
+                        ? 'rounded-br-md bg-neon-tri font-medium text-white shadow-glowViolet'
                         : 'rounded-bl-md border border-mono-800 bg-mono-900 text-mono-100'
                     }`}
                   >

@@ -31,7 +31,7 @@ export default function InviteCard({ groupId, compact = false }) {
     QRCode.toDataURL(invite.inviteLink, {
       width: 320,
       margin: 1,
-      color: { dark: '#0a0a0b', light: '#ffffff' },
+      color: { dark: '#030712', light: '#ffffff' },
     })
       .then((url) => active && setQr(url))
       .catch(() => {});

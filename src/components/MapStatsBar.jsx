@@ -7,7 +7,7 @@ import { formatDistance } from '../distance';
  */
 export default function MapStatsBar({ groupName, sharing = 0, nearest = null, farthest = null, weather = null }) {
   return (
-    <div className="flex items-center gap-3 overflow-x-auto rounded-2xl border border-mono-800 bg-mono-900 px-3 py-2.5 shadow-card">
+    <div className="flex items-center gap-3 overflow-x-auto rounded-2xl border border-neon/20 bg-mono-900/70 px-3 py-2.5 shadow-card backdrop-blur-xl">
       {/* Expedition identity */}
       <div className="flex min-w-0 shrink-0 items-center gap-2">
         <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -18,7 +18,9 @@ export default function MapStatsBar({ groupName, sharing = 0, nearest = null, fa
           <p className="truncate text-xs font-extrabold tracking-tight text-white">
             {groupName || 'Expedition'}
           </p>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-mono-500">Live</p>
+          <span className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent-300 shadow-glowEmerald">
+            Live GPS
+          </span>
         </div>
       </div>
 

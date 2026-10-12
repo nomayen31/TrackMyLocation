@@ -12,7 +12,7 @@ function clock(seconds) {
 function CallButton({ label, onClick, tone = 'neutral', children }) {
   const tones = {
     accept: 'bg-accent text-mono-950 hover:brightness-110',
-    danger: 'bg-white text-mono-950 hover:bg-mono-200',
+    danger: 'bg-sos text-white shadow-glowRose hover:bg-sos-600',
     neutral: 'border border-mono-700 bg-mono-850 text-white hover:border-mono-500',
   };
   return (

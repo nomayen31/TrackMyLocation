@@ -134,7 +134,7 @@ export default function StoryComposer({ socket, groupId, members = [], currentUs
                 type="button"
                 onClick={() => setMediaType(tab.id)}
                 className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                  mediaType === tab.id ? 'bg-white text-mono-950' : 'text-mono-300 hover:text-white'
+                  mediaType === tab.id ? 'bg-neon-tri text-white shadow-glowViolet' : 'text-mono-300 hover:text-white'
                 }`}
               >
                 {tab.label}

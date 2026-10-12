@@ -7,9 +7,9 @@ import { getRoute, formatDuration, ROUTE_MODES } from '../routing';
 import { MAPTILER_KEY } from '../mapKey';
 
 // The one accent colour that survives the monochrome theme.
-const GREEN = '#22c55e';
-// Road-wise route line (Google-Maps style blue with a white casing).
-const ROUTE_BLUE = '#3b82f6';
+const GREEN = '#34d399';
+// Road-wise route line (electric blue with a white casing).
+const ROUTE_BLUE = '#60a5fa';
 
 /* ---------------------------------------------------------------------------
  * Base maps.
@@ -81,7 +81,7 @@ const createAvatarIcon = ({ name, avatarUrl, isMe = false, hasStory = false }) =
   const initial = escapeHtml((name || '?').trim().charAt(0).toUpperCase() || '?');
   const inner = avatarUrl
     ? `<img src="${escapeHtml(avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" />`
-    : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:#27272a;color:#f4f4f5;font:700 17px/1 Inter,system-ui,sans-serif;">${initial}</span>`;
+    : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:#1e293b;color:#e2e8f0;font:700 17px/1 Inter,system-ui,sans-serif;">${initial}</span>`;
 
   return L.divIcon({
     className: 'custom-avatar-marker',
@@ -103,8 +103,8 @@ const createSearchIcon = () =>
       <div class="search-pin">
         <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
           <path d="M12 2.6a6.9 6.9 0 0 0-6.9 6.9c0 4.9 6.9 12.1 6.9 12.1s6.9-7.2 6.9-12.1A6.9 6.9 0 0 0 12 2.6z"
-            fill="#ffffff" stroke="#0a0a0b" stroke-width="1.6" />
-          <circle cx="12" cy="9.4" r="2.6" fill="#0a0a0b" />
+            fill="#3b82f6" stroke="#030712" stroke-width="1.6" />
+          <circle cx="12" cy="9.4" r="2.6" fill="#ffffff" />
         </svg>
       </div>`,
     iconSize: [34, 34],
@@ -401,12 +401,12 @@ export default function LiveMap({
               center={[safeZone.centerLat, safeZone.centerLng]}
               radius={safeZone.radiusM}
               pathOptions={{
-                color: '#22c55e',
+                color: '#10b981',
                 weight: 2,
                 opacity: 0.9,
                 dashArray: '8 7',
-                fillColor: '#22c55e',
-                fillOpacity: 0.07,
+                fillColor: '#10b981',
+                fillOpacity: 0.08,
               }}
             >
               <Tooltip permanent direction="top" className="safe-tooltip">
@@ -817,7 +817,7 @@ export default function LiveMap({
             <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-mono-700 sm:hidden" />
 
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-mono-950">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neon-tri text-white shadow-glow">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
                   <path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" />
                   <circle cx="12" cy="10" r="2.4" />
@@ -884,7 +884,7 @@ export default function LiveMap({
                       title={mode.label}
                       aria-pressed={active}
                       className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                        active ? 'bg-white text-mono-950' : 'text-mono-300 hover:text-white'
+                        active ? 'bg-neon-tri text-white shadow-glowViolet' : 'text-mono-300 hover:text-white'
                       }`}
                     >
                       <ModeIcon mode={mode.id} />
@@ -902,7 +902,7 @@ export default function LiveMap({
         <button
           type="button"
           onClick={() => onAddStory?.()}
-          className="pointer-events-auto flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-mono-950 shadow-lift active:translate-y-px"
+          className="pointer-events-auto flex items-center gap-2 rounded-full bg-neon-tri px-4 py-2.5 text-sm font-bold text-white shadow-glowViolet transition hover:scale-[1.03] active:scale-[0.97]"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
             <path d="M12 5v14M5 12h14" />

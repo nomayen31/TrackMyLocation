@@ -88,7 +88,7 @@ export default function SafeZonePanel({ safeZone, isAdmin, onClose, onSet, onDis
                     onClick={() => setRadius(p.value)}
                     className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       Number(radius) === p.value
-                        ? 'border-white bg-white text-mono-950'
+                        ? 'bg-neon-tri text-white shadow-glowViolet'
                         : 'border-mono-700 text-mono-300 hover:border-mono-500 hover:text-white'
                     }`}
                   >

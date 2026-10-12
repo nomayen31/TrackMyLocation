@@ -16,7 +16,7 @@ import { distanceMeters, formatDistance } from '../distance';
 function RailButton({ label, active = false, onClick, tone = 'default', children }) {
   const tones = {
     default: active
-      ? 'border-white bg-white text-mono-950'
+      ? 'bg-neon-tri text-white shadow-glowViolet'
       : 'border-mono-800 bg-mono-900/90 text-white hover:border-mono-600',
     sos: 'border-sos/70 bg-sos text-white sos-pulse hover:bg-sos-600',
     accent: active
@@ -172,8 +172,8 @@ export default function ExpeditionMap({
         weather={weather}
       />
 
-      {/* Framed map card */}
-      <div className="framed relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-mono-800 bg-mono-950 shadow-card">
+      {/* Framed map card — neon glass */}
+      <div className="neon-frame min-h-0 flex-1 bg-mono-950">
         <LiveMap
           myLocation={myLocation}
           otherUsers={otherUsers}

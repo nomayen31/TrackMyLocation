@@ -805,7 +805,7 @@ export default function App() {
         }`}
       >
         <div className="flex items-center gap-3 border-b border-mono-800 px-4 py-4">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-mono-950">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neon-tri text-white shadow-glow">
             <CompassIcon className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -879,7 +879,7 @@ export default function App() {
         {!activeGroup ? (
           <div className="flex flex-1 items-center justify-center p-6 sm:p-8">
             <div className="card animate-fade-up w-full max-w-md p-6 text-center sm:p-8">
-              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-mono-950">
+              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-neon-tri text-white shadow-glowViolet">
                 <CompassIcon className="h-8 w-8" />
               </span>
               <h2 className="mt-5 text-xl font-extrabold text-white">Welcome to Trip Tracker</h2>
@@ -995,7 +995,7 @@ export default function App() {
                     onClick={() => setTab(t.id)}
                     aria-current={active ? 'page' : undefined}
                     className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-semibold transition ${
-                      active ? 'bg-white text-mono-950' : 'text-mono-400'
+                      active ? 'bg-neon-tri text-white shadow-glowViolet' : 'text-mono-400'
                     }`}
                   >
                     <t.Icon className="h-5 w-5" />

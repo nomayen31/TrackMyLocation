@@ -1,7 +1,8 @@
 # TrackMyLocation
 
 React + Vite frontend for **Trip Tracker** — a live group-travel tracker with a
-black & white minimalist UI.
+**Cyber-Travel neon glassmorphism** dark UI (deep-space canvas, glowing glass
+cards, violet → cyan → emerald accents).
 
 ## Features
 - **Landing page** — monochrome hero, feature grid, interactive preview mockup and Create/Join CTAs

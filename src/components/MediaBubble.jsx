@@ -24,7 +24,7 @@ export default function MediaBubble({ type, data, mime, duration, mine = false, 
         <div className="flex items-center gap-2.5">
           <span
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-              mine ? 'bg-mono-950/10 text-mono-950' : 'bg-white/10 text-white'
+              mine ? 'bg-white/20 text-white' : 'bg-white/10 text-white'
             }`}
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
@@ -38,7 +38,7 @@ export default function MediaBubble({ type, data, mime, duration, mine = false, 
             className="h-9 w-52 max-w-[60vw]"
           />
         </div>
-        <span className={`text-[10px] ${mine ? 'text-mono-950/60' : 'text-mono-400'}`}>
+        <span className={`text-[10px] ${mine ? 'text-white/70' : 'text-mono-400'}`}>
           Voice note{duration ? ` · ${clock(duration)}` : ''}
         </span>
       </div>

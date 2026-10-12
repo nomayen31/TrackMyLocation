@@ -171,7 +171,7 @@ export default function DirectMessages({ socket, groupId, otherUser, currentUser
                   <div
                     className={`max-w-[82%] break-words rounded-2xl px-3 py-2 text-sm ${
                       mine
-                        ? 'rounded-br-md bg-white text-mono-950'
+                        ? 'rounded-br-md bg-neon-tri font-medium text-white shadow-glowViolet'
                         : 'rounded-bl-md border border-mono-800 bg-mono-850 text-mono-100'
                     }`}
                   >

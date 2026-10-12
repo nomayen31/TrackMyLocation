@@ -79,7 +79,7 @@ export default function QuickChat({ socket, groupId, currentUser, onClose }) {
                 <div
                   className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-xs ${
                     isMe
-                      ? 'rounded-br-md bg-white text-mono-950'
+                      ? 'rounded-br-md bg-neon-tri font-medium text-white shadow-glowViolet'
                       : 'rounded-bl-md border border-mono-800 bg-mono-850 text-mono-100'
                   }`}
                 >

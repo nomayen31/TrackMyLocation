@@ -33,12 +33,12 @@ export default function AuthForm({ onAuthed }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-mono-950 px-5 py-10">
       {/* Monochrome ambient glow — no colour, just light. */}
-      <div className="pointer-events-none absolute -left-24 top-[-10%] h-80 w-80 rounded-full bg-white/[0.04] blur-3xl" />
-      <div className="pointer-events-none absolute -right-20 bottom-[-15%] h-96 w-96 rounded-full bg-white/[0.03] blur-3xl" />
+      <div className="pointer-events-none absolute -left-24 top-[-10%] h-80 w-80 rounded-full bg-neon/25 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 bottom-[-15%] h-96 w-96 rounded-full bg-electric/20 blur-3xl" />
 
       <div className="relative w-full max-w-[420px] animate-fade-up">
         <div className="mb-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-mono-950">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-neon-tri text-white shadow-glow">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -58,7 +58,7 @@ export default function AuthForm({ onAuthed }) {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-mono-800 bg-mono-900 p-7 shadow-lift">
+        <div className="rounded-3xl border border-mono-800/80 bg-mono-900/70 p-7 shadow-lift backdrop-blur-xl">
           <h1 className="text-2xl font-extrabold tracking-tight text-white">
             {mode === 'login' ? 'Welcome back' : 'Create your account'}
           </h1>

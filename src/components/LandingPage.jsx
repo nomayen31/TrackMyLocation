@@ -143,7 +143,7 @@ function PreviewMap() {
       <div className="hero-grid absolute inset-0" />
       {/* Fake distance line + markers */}
       <svg className="absolute inset-0 h-full w-full" viewBox="0 0 400 240" preserveAspectRatio="none">
-        <path d="M80 170 C150 150 210 120 320 70" stroke="#22c55e" strokeWidth="2.5" strokeDasharray="6 7" fill="none" />
+        <path d="M80 170 C150 150 210 120 320 70" stroke="#34d399" strokeWidth="2.5" strokeDasharray="6 7" fill="none" />
       </svg>
       {[
         { x: '20%', y: '70%', label: 'You', accent: true },
@@ -152,7 +152,7 @@ function PreviewMap() {
       ].map((m) => (
         <div key={m.label} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: m.x, top: m.y }}>
           <div className="relative">
-            {m.accent && <span className="absolute -inset-1.5 rounded-full bg-white/15" />}
+            {m.accent && <span className="absolute -inset-1.5 rounded-full bg-neon/30" />}
             <div className="story-ring-ui absolute -inset-1 rounded-full" />
             <div className="relative m-[3px] flex h-9 w-9 items-center justify-center rounded-full border border-mono-950 bg-mono-800 text-[10px] font-bold text-white">
               {m.label[0]}
@@ -189,7 +189,7 @@ function PreviewChat() {
         <div key={i} className={`flex ${l.me ? 'justify-end' : 'justify-start'}`}>
           <div
             className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-[11px] ${
-              l.me ? 'rounded-br-md bg-white text-mono-950' : 'rounded-bl-md border border-mono-800 bg-mono-900 text-mono-100'
+              l.me ? 'rounded-br-md bg-neon-tri text-white shadow-glowViolet' : 'rounded-bl-md border border-mono-800 bg-mono-900 text-mono-100'
             }`}
           >
             {l.audio ? (
@@ -210,7 +210,7 @@ function PreviewChat() {
       ))}
       <div className="mt-auto flex items-center gap-2 rounded-2xl border border-mono-800 bg-mono-900 px-3 py-2">
         <span className="text-[11px] text-mono-500">Message the trip…</span>
-        <span className="ml-auto flex h-6 w-6 items-center justify-center rounded-lg bg-white text-mono-950">
+        <span className="ml-auto flex h-6 w-6 items-center justify-center rounded-lg bg-neon-tri text-white">
           <Arrow className="h-3.5 w-3.5" />
         </span>
       </div>
@@ -271,7 +271,7 @@ function PreviewMockup() {
               type="button"
               onClick={() => setTab(t)}
               className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition ${
-                tab === t ? 'bg-white text-mono-950' : 'text-mono-400 hover:text-white'
+                tab === t ? 'bg-neon-tri text-white shadow-glow' : 'text-mono-400 hover:text-white'
               }`}
             >
               {t}
@@ -298,7 +298,7 @@ export default function LandingPage({ onStart, onSignIn, invited = false }) {
       {/* ---------------------------------------------------------------- nav */}
       <header className="sticky top-0 z-40 border-b border-mono-800/80 bg-mono-950/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-mono-950">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-neon-tri text-white shadow-glow">
             <Compass className="h-5 w-5" />
           </span>
           <span className="text-sm font-extrabold tracking-tight text-white">Trip Tracker</span>
@@ -338,7 +338,7 @@ export default function LandingPage({ onStart, onSignIn, invited = false }) {
 
             <h1 className="mt-5 text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
               The Ultimate Real-Time Tourist Group Companion
-              <span className="block text-mono-400">& Expedition Tracker</span>
+              <span className="block text-gradient">& Expedition Tracker</span>
             </h1>
 
             <p className="mt-5 max-w-xl text-base leading-relaxed text-mono-400">
@@ -413,7 +413,7 @@ export default function LandingPage({ onStart, onSignIn, invited = false }) {
               key={title}
               className="group relative overflow-hidden rounded-2xl border border-mono-800 bg-mono-900 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-mono-600"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-mono-800 bg-mono-850 text-white transition group-hover:bg-white group-hover:text-mono-950">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-mono-800 bg-mono-850 text-neon-300 transition group-hover:border-neon/50 group-hover:bg-neon-tri group-hover:text-white">
                 <Icon className="h-5 w-5" />
               </span>
               <h3 className="mt-4 text-sm font-bold text-white">{title}</h3>
@@ -505,7 +505,7 @@ export default function LandingPage({ onStart, onSignIn, invited = false }) {
       <footer className="border-t border-mono-800 px-5 py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-mono-950">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-neon-tri text-white shadow-glow">
               <Compass className="h-4 w-4" />
             </span>
             <span className="text-xs font-semibold text-mono-300">Trip Tracker</span>
