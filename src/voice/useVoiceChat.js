@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Room, RoomEvent } from 'livekit-client';
+import { API_URL } from '../api';
 
 /**
  * useVoiceChat — Discord-style group voice rooms.
@@ -92,7 +93,7 @@ export default function useVoiceChat(socket, currentUser) {
     if (!socket) return undefined;
     let active = true;
     // Bootstrap: does the backend have LiveKit credentials?
-    fetch('http://localhost:5000/api/voice/config', { credentials: 'include' })
+    fetch(`${API_URL}/api/voice/config`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((cfg) => {
         if (active && cfg) setConfigured(Boolean(cfg.configured));

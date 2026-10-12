@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import api from './api';
+import api, { API_URL } from './api';
 import { distanceMeters, formatDistance } from './distance';
 import { readInviteToken, clearInviteFromUrl } from './invite';
 import useCall from './useCall';
@@ -27,7 +27,7 @@ import useVoiceChat from './voice/useVoiceChat';
 import CallOverlay from './components/CallOverlay';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
 
-const API = 'http://localhost:5000';
+const API = API_URL;
 const USER_KEY = 'trip-tracker.user';
 
 /* -------------------------------------------------------------------------

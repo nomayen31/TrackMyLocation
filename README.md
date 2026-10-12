@@ -35,6 +35,24 @@ Set the MapTiler key (optional — a fallback is built in):
 cp .env.example .env   # then edit VITE_MAPTILER_KEY
 ```
 
+Point the app at your backend (required in production):
+```bash
+# .env
+VITE_API_URL=http://localhost:5000            # local dev
+VITE_API_URL=https://your-api.onrender.com    # deployed backend
+```
+
+## Deploying the frontend (Vercel)
+1. Vercel → **New Project** → import this repo.
+2. Framework preset: **Vite** (`vercel.json` sets build + output).
+3. Add `VITE_API_URL` = your deployed backend URL, and `VITE_MAPTILER_KEY`.
+4. Deploy, then set the backend's `CLIENT_URL` to the resulting
+   `https://…vercel.app` origin (and redeploy the backend) so CORS and the
+   cross-site session cookie line up.
+
+`vercel.json` also adds a SPA rewrite, which is required for the QR invite links
+(`/join/<token>`) to resolve on a hard refresh.
+
 ## Scripts
 | Command | Description |
 | --- | --- |
