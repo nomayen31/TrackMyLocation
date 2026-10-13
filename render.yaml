@@ -40,9 +40,10 @@ services:
         value: no-cache
 
     envVars:
-      # Base URL of the deployed API. MUST be set before the build runs.
+      # Optional: the app already defaults to the Render API URL in production
+      # and to http://localhost:5000 in local dev. Set this only to override.
       - key: VITE_API_URL
-        sync: false
+        value: https://trackmylocationbackend.onrender.com
 
       # MapTiler key for the Hybrid basemap (browser-exposed by design).
       - key: VITE_MAPTILER_KEY
