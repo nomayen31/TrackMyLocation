@@ -1,0 +1,57 @@
+# ============================================================================
+# Render Blueprint — Trip Tracker frontend (Vite + React static site)
+# ============================================================================
+# HOW TO DEPLOY
+#   1. Push this repo to GitHub.
+#   2. Render Dashboard -> New -> Blueprint -> pick this repo.
+#   3. Set VITE_API_URL to your deployed API URL
+#      (e.g. https://trackmylocationbackend.onrender.com).
+#   4. Deploy, then copy the static site URL into the API's CLIENT_URL and
+#      redeploy the API so CORS + session cookies match.
+#
+# IMPORTANT: Vite inlines VITE_* variables at BUILD time, so changing
+# VITE_API_URL requires a redeploy (not just a restart).
+# ============================================================================
+
+services:
+  - type: web
+    name: trackmylocation-app
+    runtime: static
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --include=dev && npm run build
+    staticPublishPath: ./dist
+
+    # Single-page app: serve index.html for client routes such as
+    # /join/<invite-token> (used by QR invites) so a hard refresh works.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    headers:
+      # Hashed Vite assets are immutable — cache them hard.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      # Never cache the HTML shell.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+
+    envVars:
+      # Base URL of the deployed API. MUST be set before the build runs.
+      - key: VITE_API_URL
+        sync: false
+
+      # MapTiler key for the Hybrid basemap (browser-exposed by design).
+      - key: VITE_MAPTILER_KEY
+        value: PAAtuckOiCsaL8MuwMIX
+
+      # Optional: TURN server for 1-to-1 WebRTC calls on restrictive networks.
+      # - key: VITE_TURN_URL
+      #   sync: false
+      # - key: VITE_TURN_USER
+      #   sync: false
+      # - key: VITE_TURN_CREDENTIAL
+      #   sync: false
