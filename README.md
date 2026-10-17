@@ -319,6 +319,38 @@ Static site · build `npm install --include=dev && npm run build` · publish `di
 > After deploying, copy the site URL into the backend's `CLIENT_URL` and redeploy
 > the API — otherwise the browser blocks every request with a CORS error.
 
+### Vercel (frontend) + Render (API) — the cross-site case
+
+Two different hosts make the session cookie a **third-party cookie**. That works,
+but only while the browser allows third-party cookies — Safari blocks them by
+default, and so do Firefox (Strict) and Chrome with the corresponding setting.
+When they're blocked the cookie is dropped silently: sign-in returns 200, the
+next request is 401, and the app bounces straight back to the sign-in page.
+
+**Fix: keep the browser on one origin.** Add `vercel.json`:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://trackmylocationbackend.onrender.com/api/:path*" },
+    { "source": "/socket.io/:path*", "destination": "https://trackmylocationbackend.onrender.com/socket.io/:path*" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ]
+}
+```
+
+Then set `VITE_API_URL=/` — requests stay relative, so the cookie is
+first-party and survives every browser. `CLIENT_URL` on the backend must then be
+the **Vercel** URL. (Websocket forwarding through rewrites is the one thing to
+verify on your plan; if Socket.IO fails to upgrade, fall back to separate
+domains and `SameSite=Lax` on subdomains of one custom domain.)
+
+**Alternative with your own domain:** serve the frontend at `app.example.com`
+and the API at `api.example.com`. Subdomains of the same site are first-party,
+so set `COOKIE_SAMESITE=lax` on the backend — `Lax` cookies are never subject to
+third-party blocking.
+
+
 ---
 
 ## 12. Browser support & limits
@@ -340,6 +372,7 @@ Static site · build `npm install --include=dev && npm run build` · publish `di
 | --- | --- |
 | Everything 404s / `Failed to fetch` | `VITE_API_URL` missing on the host, or backend `CLIENT_URL` doesn't include this origin. |
 | CORS error in console | Add this site's exact origin to the backend `CLIENT_URL`, then redeploy the API. |
+| Sign-in succeeds, then instantly 401s back to sign-in | Cross-site cookie blocked by the browser (Safari / Firefox Strict / Chrome third-party cookies off), or `CLIENT_URL` doesn't match this origin exactly. See "Vercel + Render" above. |
 | Map tiles blank | `VITE_MAPTILER_KEY` invalid or domain-restricted. |
 | "Microphone blocked" | You're on `http://` — use `https://` (or localhost). |
 | Voice connects but no audio | Check the browser's mic permission and the output device; try TURN for restrictive networks. |
