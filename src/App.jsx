@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import api, { API_URL, setSessionActive } from './api';
+import api, { API_URL, setSessionActive, getToken, setToken } from './api';
 import { distanceMeters, formatDistance } from './distance';
 import { readInviteToken, clearInviteFromUrl } from './invite';
 import useCall from './useCall';
@@ -334,7 +334,10 @@ export default function App() {
   /* --------------------------------------------------- socket lifecycle */
   useEffect(() => {
     if (!user) return undefined;
-    const s = io(API || undefined, { withCredentials: true });
+    const s = io(API || undefined, {
+      withCredentials: true, // cookie fallback (same-site deployments)
+      auth: { token: getToken() }, // bearer token — survives blocked cross-site cookies
+    });
     setSocket(s);
     return () => s.disconnect();
   }, [user]);
@@ -700,6 +703,7 @@ export default function App() {
     }
     stopRingtone();
     setSessionActive(false);
+    setToken('');
     localStorage.removeItem(USER_KEY);
     setUser(null);
     setSocket(null);

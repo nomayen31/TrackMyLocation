@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import api from '../api';
+import api, { setToken } from '../api';
 
 const labelClass = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mono-400';
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -48,8 +48,11 @@ export default function AuthForm({ onAuthed }) {
           : { email, password };
 
       // withCredentials: true sends/receives the Better Auth session cookie.
+      // The response also carries a bearer token, which is what keeps the user
+      // signed in when the browser blocks that cross-site cookie.
       const res = await api.post(endpoint, payload);
 
+      if (res.data?.token) setToken(res.data.token);
       onAuthed(res.data.user);
     } catch (err) {
       setError(err.response?.data?.error || 'Network error. Is the backend running?');

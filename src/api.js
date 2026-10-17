@@ -69,7 +69,38 @@ export function setSessionActive(active) {
   sessionSince = sessionActive ? Date.now() : 0;
 }
 
+/**
+ * Session token storage.
+ *
+ * The API returns a bearer token from sign-up/sign-in. Sending it in an
+ * `Authorization` header keeps the user signed in even when the browser refuses
+ * to store or send the session cookie — which is what happens whenever the
+ * frontend and the API live on different *sites* (`*.vercel.app` and
+ * `*.onrender.com` both are, so that pairing is always cross-site). Safari,
+ * Firefox and Brave block such cookies by default.
+ */
+const TOKEN_KEY = 'trip-tracker.token';
+
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable (private mode) — cookies still work same-site */
+  }
+}
+
 api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   config.__hadSession = sessionActive;
   return config;
 });
@@ -85,6 +116,7 @@ api.interceptors.response.use(
     if (status === 401 && hadSession && !isAuthRoute) {
       const sticky = sessionSince > 0 && Date.now() - sessionSince < 5000;
       setSessionActive(false); // report it once, not on every pending request
+      setToken(''); // the token is dead — don't keep sending it
       try {
         window.dispatchEvent(
           new CustomEvent('trip-tracker:unauthorized', { detail: { sticky } })

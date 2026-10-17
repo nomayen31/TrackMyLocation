@@ -321,34 +321,27 @@ Static site · build `npm install --include=dev && npm run build` · publish `di
 
 ### Vercel (frontend) + Render (API) — the cross-site case
 
-Two different hosts make the session cookie a **third-party cookie**. That works,
-but only while the browser allows third-party cookies — Safari blocks them by
-default, and so do Firefox (Strict) and Chrome with the corresponding setting.
-When they're blocked the cookie is dropped silently: sign-in returns 200, the
+`vercel.app` and `onrender.com` are **both in the Public Suffix List**, so this
+pairing is always cross-site: the session cookie is a **third-party cookie**.
+Safari (ITP), Firefox (Total Cookie Protection) and Brave block those by default.
+When they're blocked the cookie is dropped silently — sign-in returns 200, the
 next request is 401, and the app bounces straight back to the sign-in page.
 
-**Fix: keep the browser on one origin.** Add `vercel.json`:
+**This is handled by bearer tokens, which are on by default.** The API returns a
+`token` from sign-up/sign-in; the app stores it and sends
+`Authorization: Bearer <token>` on every request and in the Socket.IO handshake.
+Auth therefore works with cookies fully blocked. The cookie still works as a
+fallback for same-site deployments.
 
-```json
-{
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "https://trackmylocationbackend.onrender.com/api/:path*" },
-    { "source": "/socket.io/:path*", "destination": "https://trackmylocationbackend.onrender.com/socket.io/:path*" },
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
-  ]
-}
-```
+> Do **not** try to fix this with a `vercel.json` rewrite that proxies `/api` and
+> `/socket.io` to Render. Vercel's rewrites do not reliably forward WebSocket
+> upgrades to an external host, so Socket.IO silently falls back to polling and
+> live location, calls and presence break.
 
-Then set `VITE_API_URL=/` — requests stay relative, so the cookie is
-first-party and survives every browser. `CLIENT_URL` on the backend must then be
-the **Vercel** URL. (Websocket forwarding through rewrites is the one thing to
-verify on your plan; if Socket.IO fails to upgrade, fall back to separate
-domains and `SameSite=Lax` on subdomains of one custom domain.)
-
-**Alternative with your own domain:** serve the frontend at `app.example.com`
-and the API at `api.example.com`. Subdomains of the same site are first-party,
-so set `COOKIE_SAMESITE=lax` on the backend — `Lax` cookies are never subject to
-third-party blocking.
+**If you prefer cookie-only auth** (no token in browser storage), the two hosts
+must be *same-site*: serve the frontend at `app.example.com` and the API at
+`api.example.com`, then set `COOKIE_SAMESITE=lax` on the backend. Subdomains of
+one registrable domain are same-site, so `Lax` cookies are never third-party.
 
 
 ---
@@ -372,7 +365,7 @@ third-party blocking.
 | --- | --- |
 | Everything 404s / `Failed to fetch` | `VITE_API_URL` missing on the host, or backend `CLIENT_URL` doesn't include this origin. |
 | CORS error in console | Add this site's exact origin to the backend `CLIENT_URL`, then redeploy the API. |
-| Sign-in succeeds, then instantly 401s back to sign-in | Cross-site cookie blocked by the browser (Safari / Firefox Strict / Chrome third-party cookies off), or `CLIENT_URL` doesn't match this origin exactly. See "Vercel + Render" above. |
+| Sign-in succeeds, then instantly 401s back to sign-in | Cross-site cookie blocked by the browser (Safari / Firefox / Brave block third-party cookies by default). Bearer tokens handle this — if it still happens, check the token is being stored (`localStorage['trip-tracker.token']`) and that the API redeploy includes the `bearer` plugin. |
 | Map tiles blank | `VITE_MAPTILER_KEY` invalid or domain-restricted. |
 | "Microphone blocked" | You're on `http://` — use `https://` (or localhost). |
 | Voice connects but no audio | Check the browser's mic permission and the output device; try TURN for restrictive networks. |
