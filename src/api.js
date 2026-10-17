@@ -48,4 +48,26 @@ const api = axios.create({
   withCredentials: true,
 });
 
+/**
+ * A 401 on an authenticated call means the session is gone (expired, or the
+ * cookie was not sent because of a cross-site policy problem). Surface it once
+ * so the app can return the user to the sign-in screen with a clear message
+ * instead of showing a raw "Unauthorized" on whatever form they were using.
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url || '';
+    if (status === 401 && !url.startsWith('/api/auth/') && !url.startsWith('/api/lan/')) {
+      try {
+        window.dispatchEvent(new CustomEvent('trip-tracker:unauthorized'));
+      } catch {
+        /* non-browser */
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

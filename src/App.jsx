@@ -256,6 +256,27 @@ export default function App() {
   /* --------------------------------------------------- audio unlock once */
   useEffect(() => installAudioUnlock(), []);
 
+  /* ------------------------- session lost (401 on an authenticated call) */
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null);
+      setActiveGroup(null);
+      setGroupMembers({});
+      setStoriesFeed([]);
+      setMemberList([]);
+      setSafeZone(null);
+      localStorage.removeItem(USER_KEY);
+      pushToast({
+        icon: '🔒',
+        title: 'Session expired',
+        body: 'Please sign in again to continue.',
+        alert: true,
+      }, { timeout: 9000 });
+    };
+    window.addEventListener('trip-tracker:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('trip-tracker:unauthorized', onUnauthorized);
+  }, [pushToast]);
+
   /* --------------------------- service worker + push (closed-tab ringing) */
   useEffect(() => {
     registerServiceWorker();
