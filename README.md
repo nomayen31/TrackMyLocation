@@ -79,6 +79,25 @@ production install would skip them and fail the build.
 | `npm run preview` | Preview the production build |
 | `npm run lint` | Lint the source |
 
+## Calls, notifications & chat
+
+- **Professional call UI** (`CallOverlay`): full-screen while ringing, labelled
+  status (Ringing / Connected / Ended), timestamp-based timer that stays correct
+  when the tab is backgrounded, mute, and a **minimize** button that collapses the
+  call into a floating pill so you can keep using the app.
+- **Screen wake lock** while a call is live (`useWakeLock`), so mobile devices
+  don't sleep and drop the audio.
+- **Noise cancellation**: `echoCancellation`, `noiseSuppression` and
+  `autoGainControl` are requested from `getUserMedia`; the UI shows the active DSP.
+- **Background / closed-tab ringing**: a service worker (`public/sw.js`) shows
+  incoming-call notifications while the tab is hidden, and **Web Push** rings when
+  the tab is fully closed. Tapping the notification opens the app.
+- **Chat**: messages grouped by sender with day separators, hover timestamps,
+  smart auto-scroll (only when you're at the bottom), "jump to latest", quick
+  emoji reactions, image attachments and voice notes.
+- **QR join**: scanning uses **jsQR** (works on iOS Safari too), with the invite
+  link / code as a fallback.
+
 ## Notes
 - The app talks to the backend API on `http://localhost:5000` (see `src/api.js`).
 - The MapTiler key is browser-exposed; restrict it by domain in the MapTiler dashboard.

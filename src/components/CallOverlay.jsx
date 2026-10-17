@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import useWakeLock from '../hooks/useWakeLock';
 
 function clock(seconds) {
   const total = Math.max(0, Math.round(seconds || 0));
@@ -7,16 +8,14 @@ function clock(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-/** Round neon control button. */
-function CallButton({ label, onClick, variant = 'glass', pulsing = false, children }) {
+/** Round control button with neon variants. */
+function CallButton({ label, onClick, variant = 'glass', pulsing = false, size = 'lg', children }) {
+  const sizes = { lg: 'h-16 w-16', sm: 'h-11 w-11' };
   const variants = {
-    // Glowing emerald — accept / unmute-to-talk.
     accept:
-      'border border-accent/50 bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_0_28px_rgba(16,185,129,0.6)] hover:shadow-[0_0_38px_rgba(16,185,129,0.85)]',
-    // Glowing crimson — decline / end.
+      'border border-accent/50 bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_0_28px_rgba(16,185,129,0.6)] hover:shadow-[0_0_40px_rgba(16,185,129,0.9)]',
     danger:
-      'border border-sos/60 bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-[0_0_28px_rgba(244,63,94,0.6)] hover:shadow-[0_0_38px_rgba(244,63,94,0.85)]',
-    // Frosted glass — mute.
+      'border border-sos/60 bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-[0_0_28px_rgba(244,63,94,0.6)] hover:shadow-[0_0_40px_rgba(244,63,94,0.9)]',
     glass:
       'border border-mono-700/80 bg-white/5 text-white backdrop-blur-xl hover:border-neon/60 hover:bg-white/10',
   };
@@ -26,7 +25,7 @@ function CallButton({ label, onClick, variant = 'glass', pulsing = false, childr
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`flex h-16 w-16 items-center justify-center rounded-full transition duration-200 hover:scale-105 active:scale-95 ${variants[variant]} ${
+      className={`flex ${sizes[size]} items-center justify-center rounded-full transition duration-200 hover:scale-105 active:scale-95 ${variants[variant]} ${
         pulsing ? 'animate-pulse' : ''
       }`}
     >
@@ -36,17 +35,25 @@ function CallButton({ label, onClick, variant = 'glass', pulsing = false, childr
 }
 
 /**
- * CallOverlay — full-screen neon call UI for incoming / outgoing / active calls.
+ * CallOverlay — professional 1-to-1 call UI.
  *
- * The remote audio stream is attached to a hidden <audio> element, so the browser
- * plays it with no visible player.
+ * • Full-screen while ringing, so it's unmissable on mobile.
+ * • Minimises to a floating pill so you can keep using the app mid-call.
+ * • Screen wake lock while the call is live.
+ * • Shows the active DSP (noise suppression / echo cancellation).
  */
 export default function CallOverlay({ call }) {
   const audioRef = useRef(null);
-  const { state, peer, muted, seconds, remoteStream, error, accept, reject, hangup, toggleMute } =
-    call;
+  const [minimized, setMinimized] = useState(false);
+  const { state, peer, muted, seconds, remoteStream, error, accept, reject, hangup, toggleMute } = call;
 
-  // Play the remote track through the invisible audio element.
+  const isIncoming = state === 'incoming';
+  const isOngoing = state === 'active' || state === 'calling';
+  const inCall = state !== 'idle' && Boolean(peer);
+
+  useWakeLock(inCall);
+
+  // Play the remote track via a hidden element.
   useEffect(() => {
     const el = audioRef.current;
     if (el && remoteStream) {
@@ -55,49 +62,127 @@ export default function CallOverlay({ call }) {
     }
   }, [remoteStream]);
 
-  if (state === 'idle' || !peer) return null;
+  // Reset minimised state when a new call starts.
+  useEffect(() => {
+    if (state === 'incoming' || state === 'calling') setMinimized(false);
+  }, [state]);
 
-  const isIncoming = state === 'incoming';
-  const isOngoing = state === 'active' || state === 'calling';
+  if (!inCall) return null;
 
-  // Status copy + semantic colour.
   let statusText = 'Call ended';
-  let statusClass = 'text-mono-400';
-  let statusDot = 'bg-mono-600';
+  let statusTone = 'text-mono-400';
+  let dot = 'bg-mono-600';
   if (state === 'incoming') {
-    statusText = 'Incoming call…';
-    statusClass = 'text-accent-300';
-    statusDot = 'bg-accent';
+    statusText = 'Incoming voice call';
+    statusTone = 'text-accent-300';
+    dot = 'bg-accent';
   } else if (state === 'calling') {
     statusText = 'Ringing…';
-    statusClass = 'text-electric-300';
-    statusDot = 'bg-electric-400';
+    statusTone = 'text-electric-300';
+    dot = 'bg-electric-400';
   } else if (state === 'active') {
     statusText = 'Connected';
-    statusClass = 'text-accent-300';
-    statusDot = 'bg-accent';
+    statusTone = 'text-accent-300';
+    dot = 'bg-accent';
   }
 
+  /* ------------------------------------------------------------ minimized */
+  if (minimized && !isIncoming) {
+    return (
+      <>
+        <audio ref={audioRef} autoPlay playsInline className="hidden" />
+        <div className="fixed inset-x-0 bottom-20 z-[3000] flex justify-center px-3 sm:bottom-6">
+          <div className="flex items-center gap-3 rounded-full border border-accent/40 bg-mono-900/95 px-3 py-2 shadow-lift backdrop-blur-xl">
+            <button
+              type="button"
+              onClick={() => setMinimized(false)}
+              className="flex items-center gap-2.5"
+              aria-label="Expand call"
+            >
+              <span className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-accent/50 bg-mono-800 text-xs font-bold text-white">
+                {peer.avatarUrl ? (
+                  <img src={peer.avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  peer.name?.[0]?.toUpperCase() || '?'
+                )}
+              </span>
+              <span className="text-left">
+                <span className="block max-w-[8rem] truncate text-xs font-bold text-white">
+                  {peer.name}
+                </span>
+                <span className="flex items-center gap-1.5 text-[10px] font-semibold text-accent-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                  {state === 'calling' ? 'Ringing…' : clock(seconds)}
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleMute}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+              className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                muted ? 'border-sos/60 bg-sos text-white' : 'border-mono-700 bg-white/5 text-white'
+              }`}
+            >
+              <MicGlyph muted={muted} className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={hangup}
+              aria-label="End call"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-sos text-white"
+            >
+              <HangupGlyph className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  /* ------------------------------------------------------------ full view */
   return (
-    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-mono-950/90 px-5 backdrop-blur-md">
-      {/* Ambient neon glow */}
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-mono-950 px-5">
+      {/* Ambient backdrop */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {peer.avatarUrl && (
+          <img
+            src={peer.avatarUrl}
+            alt=""
+            className="h-full w-full scale-110 object-cover opacity-[0.06] blur-2xl"
+          />
+        )}
         <div
-          className={`absolute left-1/2 top-1/3 h-80 w-80 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl ${
+          className={`absolute left-1/2 top-1/3 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl ${
             state === 'active' ? 'bg-accent/25' : state === 'incoming' ? 'bg-neon/25' : 'bg-electric/20'
           }`}
         />
       </div>
 
-      {/* Invisible remote-audio sink */}
       <audio ref={audioRef} autoPlay playsInline className="hidden" />
 
-      <div className="relative w-full max-w-sm rounded-3xl border border-mono-800/80 bg-mono-900/70 p-7 text-center shadow-lift backdrop-blur-xl">
-        {/* Caller avatar with a rotating neon ring */}
+      <div className="relative w-full max-w-sm rounded-[28px] border border-mono-800/80 bg-mono-900/70 p-7 text-center shadow-lift backdrop-blur-2xl">
+        {!isIncoming && (
+          <button
+            type="button"
+            onClick={() => setMinimized(true)}
+            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full text-mono-400 hover:bg-white/10 hover:text-white"
+            aria-label="Minimize call"
+            title="Minimize"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4">
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+        )}
+
+        {/* Avatar */}
         <div className="relative mx-auto h-32 w-32">
           <span
             className={`absolute inset-0 rounded-full ${
-              isOngoing ? 'story-ring-ui' : 'border border-mono-700'
+              isOngoing || isIncoming ? 'story-ring-ui' : 'border border-mono-700'
             }`}
             aria-hidden="true"
           />
@@ -113,23 +198,28 @@ export default function CallOverlay({ call }) {
           </span>
         </div>
 
-        {/* Caller identity */}
         <h2 className="mt-5 text-2xl font-extrabold tracking-tight text-white">{peer.name}</h2>
 
-        {/* Status + timer */}
         <div className="mt-2 flex items-center justify-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${statusDot} ${isOngoing ? 'animate-pulse' : ''}`} />
-          <span className={`text-sm font-semibold ${statusClass}`}>{statusText}</span>
+          <span className={`h-2 w-2 rounded-full ${dot} ${isOngoing ? 'animate-pulse' : ''}`} />
+          <span className={`text-sm font-semibold ${statusTone}`}>{statusText}</span>
           {state === 'active' && (
             <>
               <span className="text-mono-600">·</span>
-              <span className="font-mono text-sm font-semibold text-white">{clock(seconds)}</span>
+              <span className="font-mono text-sm font-semibold tabular-nums text-white">
+                {clock(seconds)}
+              </span>
             </>
           )}
         </div>
 
-        {state === 'active' && muted && (
-          <p className="mt-2 text-xs font-semibold text-warning-300">Microphone muted</p>
+        {/* Audio processing indicator */}
+        {state === 'active' && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+            <span className="chip chip-success">Noise suppression</span>
+            <span className="chip chip-slate">Echo cancel</span>
+            {muted && <span className="chip chip-danger">Muted</span>}
+          </div>
         )}
 
         {error && (
@@ -143,10 +233,7 @@ export default function CallOverlay({ call }) {
           {isIncoming ? (
             <>
               <CallButton label="Decline call" variant="danger" onClick={reject}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-6 w-6 rotate-[135deg]">
-                  <path d="M4 13c0-3 4-6 8-6s8 3 8 6" />
-                  <path d="M7.5 11.5 6 15M16.5 11.5 18 15" />
-                </svg>
+                <HangupGlyph className="h-6 w-6" />
               </CallButton>
               <CallButton label="Accept call" variant="accept" pulsing onClick={accept}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-6 w-6">
@@ -158,25 +245,12 @@ export default function CallOverlay({ call }) {
           ) : (
             <>
               {state === 'active' && (
-                <CallButton label={muted ? 'Unmute' : 'Mute'} variant="glass" onClick={toggleMute}>
-                  {muted ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-6 w-6">
-                      <path d="M9 9v3a3 3 0 0 0 5.1 2.1M15 12V6a3 3 0 0 0-5.9-.7" />
-                      <path d="M5 11v1a7 7 0 0 0 10.8 6M19 11v1a7 7 0 0 1-1.2 3.9M12 19v3M4 4l16 16" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-6 w-6">
-                      <rect x="9" y="3" width="6" height="11" rx="3" />
-                      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-                    </svg>
-                  )}
+                <CallButton label={muted ? 'Unmute microphone' : 'Mute microphone'} variant="glass" onClick={toggleMute}>
+                  <MicGlyph muted={muted} className="h-6 w-6" />
                 </CallButton>
               )}
               <CallButton label="End call" variant="danger" onClick={hangup}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="h-6 w-6 rotate-[135deg]">
-                  <path d="M4 13c0-3 4-6 8-6s8 3 8 6" />
-                  <path d="M7.5 11.5 6 15M16.5 11.5 18 15" />
-                </svg>
+                <HangupGlyph className="h-6 w-6" />
               </CallButton>
             </>
           )}
@@ -185,10 +259,39 @@ export default function CallOverlay({ call }) {
         {state === 'calling' && (
           <p className="mt-5 text-xs text-mono-400">Waiting for {peer.name} to answer…</p>
         )}
-        {state === 'incoming' && (
-          <p className="mt-5 text-xs text-mono-400">Tap the green button to answer</p>
+        {isIncoming && (
+          <p className="mt-5 text-xs text-mono-400">Green to answer · red to decline</p>
+        )}
+        {state === 'active' && (
+          <p className="mt-5 text-[11px] text-mono-500">
+            Tap minimize to keep browsing during the call
+          </p>
         )}
       </div>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------- glyphs */
+function MicGlyph({ muted, className = 'h-5 w-5' }) {
+  return muted ? (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className={className}>
+      <path d="M9 9v3a3 3 0 0 0 5.1 2.1M15 12V6a3 3 0 0 0-5.9-.7" />
+      <path d="M5 11v1a7 7 0 0 0 10.8 6M19 11v1a7 7 0 0 1-1.2 3.9M12 19v3M4 4l16 16" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className={className}>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  );
+}
+
+function HangupGlyph({ className = 'h-5 w-5' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className={`${className} rotate-[135deg]`}>
+      <path d="M4 13c0-3 4-6 8-6s8 3 8 6" />
+      <path d="M7.5 11.5 6 15M16.5 11.5 18 15" />
+    </svg>
   );
 }

@@ -25,6 +25,7 @@ import VoiceRoom from './components/voice/VoiceRoom';
 import VoiceInvitationModal from './components/voice/VoiceInvitationModal';
 import useVoiceChat from './voice/useVoiceChat';
 import CallOverlay from './components/CallOverlay';
+import { registerServiceWorker, enablePush, notifyIncomingCall } from './push';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
 
 const API = API_URL;
@@ -254,6 +255,30 @@ export default function App() {
 
   /* --------------------------------------------------- audio unlock once */
   useEffect(() => installAudioUnlock(), []);
+
+  /* --------------------------- service worker + push (closed-tab ringing) */
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
+  // Ask for notification permission once, after the first interaction (browsers
+  // require a user gesture for a good permission prompt).
+  useEffect(() => {
+    if (!user) return undefined;
+    const ask = () => {
+      enablePush();
+    };
+    window.addEventListener('pointerdown', ask, { once: true });
+    return () => window.removeEventListener('pointerdown', ask);
+  }, [user]);
+
+  // While the tab is hidden, show a notification immediately (Web Push covers
+  // the fully-closed-tab case via the service worker).
+  useEffect(() => {
+    if (call.state !== 'incoming' || !call.peer) return;
+    if (typeof document === 'undefined' || !document.hidden) return;
+    notifyIncomingCall({ name: call.peer.name, callId: call.peer.callId });
+  }, [call.state, call.peer]);
 
   /* --------------------------------------------------- restore session */
   useEffect(() => {

@@ -53,6 +53,7 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
   const pendingIce = useRef([]);
   const pendingOffer = useRef(null);
   const timer = useRef(null);
+  const startedAt = useRef(0);
   const ringTimer = useRef(null);
   const stateRef = useRef('idle');
 
@@ -73,8 +74,14 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
   const startTimer = () => {
     if (timer.current) clearInterval(timer.current);
+    // Derive the duration from a timestamp so it stays accurate after the tab
+    // has been backgrounded (mobile browsers throttle timers).
+    startedAt.current = Date.now();
     setSeconds(0);
-    timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    timer.current = setInterval(
+      () => setSeconds(Math.floor((Date.now() - startedAt.current) / 1000)),
+      1000
+    );
   };
 
   /** Tear everything down; optionally park in 'ended' so the UI can fade out. */
@@ -112,8 +119,18 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
 
   const getMedia = useCallback(async () => {
     if (localStream.current) return localStream.current;
-    // Free browser audio capture — no plugins, no cost.
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // Real noise cancellation: the browser's WebRTC DSP removes background
+    // noise, echo and level differences. Supported on Chrome, Edge, Safari.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 48000,
+      },
+      video: false,
+    });
     localStream.current = stream;
     return stream;
   }, []);
@@ -290,7 +307,7 @@ export default function useCall(socket, currentUser, { onNotice } = {}) {
       peerId.current = fromUserId;
       isCaller.current = false;
       pendingOffer.current = offer || null;
-      setPeer({ userId: fromUserId, name: fromName, avatarUrl: fromAvatar });
+      setPeer({ userId: fromUserId, name: fromName, avatarUrl: fromAvatar, callId: cid });
       setState('incoming');
     };
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import jsQR from 'jsqr';
 import api from '../api';
 
 /** Pull an invite token (or a manual code) out of a scanned / pasted value. */
@@ -16,20 +17,17 @@ function parseInvite(value) {
   } catch {
     // not a URL
   }
-  // A short manual code (e.g. AB12CD34).
   if (/^[A-Za-z0-9]{6,12}$/.test(raw)) return { kind: 'code', value: raw.toUpperCase() };
   return { kind: 'token', value: raw };
 }
 
-const SCANNER_SUPPORTED =
-  typeof window !== 'undefined' && 'BarcodeDetector' in window;
-
 /**
- * QrJoinModal — join an expedition by scanning an invite QR code, pasting the
- * invite link, or typing the short code.
+ * QrJoinModal — join a trip by scanning its invite QR, pasting the link, or
+ * typing the short code.
  *
- * Camera scanning uses the native BarcodeDetector API (Chrome / Android). Where
- * that isn't available, the paste field is the fallback — no extra dependency.
+ * Uses **jsQR** on a canvas frame, which works on every mobile browser
+ * (including iOS Safari, where BarcodeDetector is unavailable). No extra native
+ * permissions beyond the camera.
  */
 export default function QrJoinModal({ onClose, onJoined }) {
   const [manual, setManual] = useState('');
@@ -39,8 +37,10 @@ export default function QrJoinModal({ onClose, onJoined }) {
   const [cameraError, setCameraError] = useState('');
 
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
+  const busyRef = useRef(false);
 
   const stopCamera = useCallback(() => {
     if (rafRef.current) {
@@ -62,11 +62,13 @@ export default function QrJoinModal({ onClose, onJoined }) {
 
   const join = useCallback(
     async (value) => {
+      if (busyRef.current) return;
       const parsed = parseInvite(value);
       if (!parsed) {
         setError('Enter an invite link or code.');
         return;
       }
+      busyRef.current = true;
       setBusy(true);
       setError('');
       try {
@@ -78,7 +80,8 @@ export default function QrJoinModal({ onClose, onJoined }) {
         onJoined?.(res.data.group, Boolean(res.data.alreadyMember));
         onClose?.();
       } catch (err) {
-        setError(err.response?.data?.error || 'Could not join this expedition.');
+        setError(err.response?.data?.error || 'Could not join this trip.');
+        busyRef.current = false;
       } finally {
         setBusy(false);
       }
@@ -89,9 +92,16 @@ export default function QrJoinModal({ onClose, onJoined }) {
   const startCamera = useCallback(async () => {
     setCameraError('');
     setError('');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('This browser cannot open the camera. Paste the link instead.');
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
       });
       streamRef.current = stream;
       setScanning(true);
@@ -102,23 +112,46 @@ export default function QrJoinModal({ onClose, onJoined }) {
         await video.play().catch(() => {});
       }
 
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-      const tick = async () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+
+      const tick = () => {
         if (!streamRef.current || !videoRef.current) return;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes && codes.length > 0 && codes[0].rawValue) {
-            join(codes[0].rawValue);
-            return;
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA && canvas && ctx) {
+          const w = video.videoWidth;
+          const h = video.videoHeight;
+          if (w && h) {
+            // Downscale for speed; QR decoding doesn't need full resolution.
+            const scale = Math.min(1, 640 / Math.max(w, h));
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            try {
+              const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(image.data, image.width, image.height, {
+                inversionAttempts: 'dontInvert',
+              });
+              if (code?.data) {
+                join(code.data);
+                return; // stop the loop; join() tears the camera down
+              }
+            } catch {
+              /* a cold frame can throw — keep scanning */
+            }
           }
-        } catch {
-          // detection can throw on a cold frame — keep scanning
         }
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
-    } catch {
-      setCameraError('Camera unavailable. Paste the link or type the code instead.');
+    } catch (err) {
+      const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
+      setCameraError(
+        denied
+          ? 'Camera permission denied. Allow camera access, or paste the invite link below.'
+          : 'Camera unavailable. Paste the invite link or type the code instead.'
+      );
       stopCamera();
     }
   }, [join, stopCamera]);
@@ -133,8 +166,16 @@ export default function QrJoinModal({ onClose, onJoined }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-mono-800 px-4 py-3">
-          <h2 className="text-base font-bold text-white">Join an expedition</h2>
-          <button type="button" onClick={() => { stopCamera(); onClose?.(); }} aria-label="Close" className="btn btn-ghost p-2">
+          <h2 className="text-base font-bold text-white">Join a trip</h2>
+          <button
+            type="button"
+            onClick={() => {
+              stopCamera();
+              onClose?.();
+            }}
+            aria-label="Close"
+            className="btn btn-ghost p-2"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-5 w-5">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
@@ -142,7 +183,7 @@ export default function QrJoinModal({ onClose, onJoined }) {
         </div>
 
         <div className="p-4">
-          {/* Camera / scan area */}
+          {/* Camera preview / empty state */}
           <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-mono-700 bg-mono-950">
             <video
               ref={videoRef}
@@ -150,12 +191,18 @@ export default function QrJoinModal({ onClose, onJoined }) {
               muted
               playsInline
             />
+            <canvas ref={canvasRef} className="hidden" />
+
             {scanning && (
               <>
                 <span className="pointer-events-none absolute inset-10 rounded-2xl border-2 border-white/70" />
                 <span className="pointer-events-none absolute left-0 right-0 top-0 h-0.5 animate-pulse bg-accent" />
+                <span className="pointer-events-none absolute inset-x-10 bottom-4 rounded-full bg-black/60 px-3 py-1 text-center text-[11px] font-semibold text-white">
+                  Point at the trip QR code
+                </span>
               </>
             )}
+
             {!scanning && (
               <div className="flex flex-col items-center gap-3 px-6 text-center">
                 <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-mono-700 bg-mono-900 text-white">
@@ -166,19 +213,13 @@ export default function QrJoinModal({ onClose, onJoined }) {
                     <path d="M14 14h2.5v2.5H14zM19.5 14v2.5M14 19.5h5.5" />
                   </svg>
                 </span>
-                <p className="text-sm font-semibold text-white">
-                  {SCANNER_SUPPORTED ? 'Scan the expedition QR' : 'Paste your invite link'}
-                </p>
+                <p className="text-sm font-semibold text-white">Scan the trip QR code</p>
                 <p className="max-w-[16rem] text-[11px] leading-relaxed text-mono-400">
-                  {SCANNER_SUPPORTED
-                    ? 'Point your camera at the QR code an admin shared.'
-                    : 'Your browser can’t scan in-app. Paste the invite link or type the short code below.'}
+                  Open your camera and point it at the code an admin shared.
                 </p>
-                {SCANNER_SUPPORTED && (
-                  <button type="button" onClick={startCamera} className="btn btn-primary btn-sm">
-                    Open camera
-                  </button>
-                )}
+                <button type="button" onClick={startCamera} className="btn btn-primary btn-sm">
+                  Open camera
+                </button>
               </div>
             )}
           </div>
@@ -198,7 +239,7 @@ export default function QrJoinModal({ onClose, onJoined }) {
           {/* Manual fallback */}
           <div className="mt-4 border-t border-mono-800 pt-4">
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mono-400">
-              Invite link or code
+              Or paste the invite link / code
             </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
@@ -221,7 +262,7 @@ export default function QrJoinModal({ onClose, onJoined }) {
           </div>
 
           {error && (
-            <p className="mt-3 rounded-lg border border-mono-700 bg-mono-800 px-3 py-2 text-sm text-mono-100">
+            <p className="mt-3 rounded-lg border border-sos/40 bg-sos/10 px-3 py-2 text-sm text-sos-300">
               {error}
             </p>
           )}
