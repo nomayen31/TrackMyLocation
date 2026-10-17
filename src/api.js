@@ -49,19 +49,46 @@ const api = axios.create({
 });
 
 /**
- * A 401 on an authenticated call means the session is gone (expired, or the
- * cookie was not sent because of a cross-site policy problem). Surface it once
- * so the app can return the user to the sign-in screen with a clear message
- * instead of showing a raw "Unauthorized" on whatever form they were using.
+ * Session lifecycle.
+ *
+ * The app probes protected routes before sign-in (to restore a session), and
+ * those probes legitimately return 401. If we treated every 401 as "session
+ * lost", signing in would flash a "Session expired" toast — and a slow
+ * pre-login probe could even log the user out a moment AFTER they signed in.
+ *
+ * So a 401 only counts when a session was believed to be active at the moment
+ * the request was SENT. `sticky` then distinguishes a session that died within
+ * seconds of starting (sign-in never actually took — almost always a blocked
+ * cross-site cookie) from an ordinary mid-session expiry.
  */
+let sessionActive = false;
+let sessionSince = 0;
+
+export function setSessionActive(active) {
+  sessionActive = Boolean(active);
+  sessionSince = sessionActive ? Date.now() : 0;
+}
+
+api.interceptors.request.use((config) => {
+  config.__hadSession = sessionActive;
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
     const url = error.config?.url || '';
-    if (status === 401 && !url.startsWith('/api/auth/') && !url.startsWith('/api/lan/')) {
+    const hadSession = error.config?.__hadSession === true;
+    const isAuthRoute = url.startsWith('/api/auth/') || url.startsWith('/api/lan/');
+
+    if (status === 401 && hadSession && !isAuthRoute) {
+      const sticky = sessionSince > 0 && Date.now() - sessionSince < 5000;
+      setSessionActive(false); // report it once, not on every pending request
       try {
-        window.dispatchEvent(new CustomEvent('trip-tracker:unauthorized'));
+        window.dispatchEvent(
+          new CustomEvent('trip-tracker:unauthorized', { detail: { sticky } })
+        );
       } catch {
         /* non-browser */
       }

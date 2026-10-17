@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import api, { API_URL } from './api';
+import api, { API_URL, setSessionActive } from './api';
 import { distanceMeters, formatDistance } from './distance';
 import { readInviteToken, clearInviteFromUrl } from './invite';
 import useCall from './useCall';
@@ -258,7 +258,8 @@ export default function App() {
 
   /* ------------------------- session lost (401 on an authenticated call) */
   useEffect(() => {
-    const onUnauthorized = () => {
+    const onUnauthorized = (event) => {
+      setSessionActive(false);
       setUser(null);
       setActiveGroup(null);
       setGroupMembers({});
@@ -266,12 +267,23 @@ export default function App() {
       setMemberList([]);
       setSafeZone(null);
       localStorage.removeItem(USER_KEY);
-      pushToast({
-        icon: '🔒',
-        title: 'Session expired',
-        body: 'Please sign in again to continue.',
-        alert: true,
-      }, { timeout: 9000 });
+      const sticky = Boolean(event?.detail?.sticky);
+      pushToast(
+        sticky
+          ? {
+              icon: '⚠️',
+              title: "Sign-in didn't stick",
+              body: 'The session cookie was blocked, so you were sent back here. Check that the API and this site are both served over https, then sign in again.',
+              alert: true,
+            }
+          : {
+              icon: '🔒',
+              title: 'Session expired',
+              body: 'Please sign in again to continue.',
+              alert: true,
+            },
+        { timeout: 9000 }
+      );
     };
     window.addEventListener('trip-tracker:unauthorized', onUnauthorized);
     return () => window.removeEventListener('trip-tracker:unauthorized', onUnauthorized);
@@ -307,10 +319,12 @@ export default function App() {
       .get('/api/profile/me')
       .catch(() => api.get('/api/auth/me')) // fall back if profile route is unavailable
       .then((res) => {
+        setSessionActive(true);
         setUser(res.data.user);
         localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
       })
       .catch(() => {
+        setSessionActive(false);
         setUser(null);
         localStorage.removeItem(USER_KEY);
       })
@@ -669,6 +683,7 @@ export default function App() {
   }, [socket, currentUser, groupId]);
 
   const handleAuthed = (u) => {
+    setSessionActive(true);
     setUser(u);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
     // Apply the landing-page intent that sent us here.
@@ -684,6 +699,7 @@ export default function App() {
       // ignore
     }
     stopRingtone();
+    setSessionActive(false);
     localStorage.removeItem(USER_KEY);
     setUser(null);
     setSocket(null);
