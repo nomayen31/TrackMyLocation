@@ -5,8 +5,7 @@ React + Vite frontend for **Trip Tracker** — a live group-travel tracker with 
 cards, violet → cyan → emerald accents).
 
 ## Features
-- **Landing page** — monochrome hero, feature grid, interactive preview mockup and Create/Join CTAs
-- Realtime group map inside a framed card with a live expedition stats bar
+- **Landing page** — monochrome hero, feature grid, interactive preview mockup and Create/Join CTAs- Realtime group map inside a framed card with a live expedition stats bar
 - **Location search** for any place, with a road-wise blue route and live distance + ETA (drive/walk/cycle)
 - Green distance polylines between you and selected group members (`geolib`)
 - **Floating map widgets** — nearby members, current weather, quick chat, and an **SOS** safety signal
@@ -17,6 +16,7 @@ cards, violet → cyan → emerald accents).
 - **Chat** — group and 1:1 direct messages with **images and voice notes**
 - **Voice calls** — free peer-to-peer 1-to-1 audio over WebRTC with Socket.IO signalling and STUN
 - **Voice rooms** — Discord-style group voice chat powered by LiveKit (create/join rooms, live participant counts, speaking indicators, invite-only private rooms)
+- **Hotspot mode** — an offline Raspberry Pi LAN mode: auto-discovers everyone on the Wi-Fi and runs peer-to-peer group voice with no internet (see the backend's `docs/HOTSPOT_SETUP.md`)
 - **Stories** — photo/video/text with privacy tiers (trip group · everyone · selected people) and a **view-once** mode
 - Group chat, trip expenses with balances, and group management
 - Responsive layout: slide-over drawer + bottom navigation on mobile

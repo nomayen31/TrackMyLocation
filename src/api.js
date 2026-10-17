@@ -4,24 +4,36 @@ import axios from 'axios';
  * Base URL of the backend API.
  *
  * Resolution order:
- *   1. `VITE_API_URL` — set this on the Render static site (recommended).
- *   2. Production default when the app is served from a real domain.
- *   3. Local dev default (http://localhost:5000).
+ *   1. `VITE_API_URL` — explicit override.
+ *   2. A private LAN address (hotspot mode) → '' (same origin, served by the Pi).
+ *   3. Production domain → the Render API.
+ *   4. localhost → the local API during development.
  *
- * The production fallback means a deployed build still reaches the API even if
- * the env var was forgotten — a common cause of "everything 404s" in prod.
- * Vite inlines these at BUILD time, so redeploy after changing anything.
+ * On the Raspberry Pi hotspot the app is served BY the backend, so requests must
+ * stay on the same origin — both for CORS and because the Pi has no internet.
  */
 const PROD_API_URL = 'https://trackmylocationbackend.onrender.com';
+
+/** 10.x · 172.16-31.x · 192.168.x — i.e. a phone attached to the Pi's AP. */
+function isPrivateHost(host) {
+  return (
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
 
 function resolveApiUrl() {
   const fromEnv = import.meta.env.VITE_API_URL;
   if (fromEnv) return String(fromEnv).replace(/\/+$/, '');
 
-  // `localhost` / `127.0.0.1` (incl. Vite preview) → talk to the local server.
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+
+    // Served from the hotspot AP → talk to the Pi that served this page.
+    if (!isLocal && isPrivateHost(host)) return '';
+
     if (!isLocal) return PROD_API_URL;
   }
 

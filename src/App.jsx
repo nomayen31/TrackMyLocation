@@ -274,7 +274,7 @@ export default function App() {
   /* --------------------------------------------------- socket lifecycle */
   useEffect(() => {
     if (!user) return undefined;
-    const s = io(API, { withCredentials: true });
+    const s = io(API || undefined, { withCredentials: true });
     setSocket(s);
     return () => s.disconnect();
   }, [user]);
