@@ -27,6 +27,7 @@ import useVoiceChat from './voice/useVoiceChat';
 import CallOverlay from './components/CallOverlay';
 import { registerServiceWorker, enablePush, notifyIncomingCall } from './push';
 import { installAudioUnlock, playRingtone, stopRingtone, vibrate } from './components/alertSound';
+import { Analytics } from '@vercel/analytics/react';
 
 const API = API_URL;
 const USER_KEY = 'trip-tracker.user';
@@ -1337,6 +1338,7 @@ export default function App() {
           }}
         />
       )}
+      <Analytics />
     </div>
   );
 }
